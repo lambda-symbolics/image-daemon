@@ -75,7 +75,8 @@ their own condition hierarchy.")
 
 (defun daemon-random-nonce ()
   "Return a fresh hexadecimal nonce for private pathnames."
-  (subseq (ironclad:byte-array-to-hex-string (ironclad:random-data 8)) 0 12))
+  (string-upcase
+   (subseq (ironclad:byte-array-to-hex-string (ironclad:random-data 8)) 0 12)))
 
 (defun legacy-session-identifier-p (value)
   "Return true when VALUE is one former twelve-character hexadecimal session ID."

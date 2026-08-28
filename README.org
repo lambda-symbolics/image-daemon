@@ -1,0 +1,53 @@
+#+title: image-daemon
+
+Authenticated loopback control endpoints for Lisp image daemons.
+
+The library defines the wire protocol shared by a detached Lisp image
+and the terminals controlling it: bounded length-prefixed readable
+packet frames with reader evaluation disabled, capability tokens,
+timestamp-bearing session identifiers with legacy compatibility, and
+deadline-bounded loopback connection and call primitives. Endpoint
+runtimes, terminal relays, and process handoff remain host concerns
+and grow into this library as their formats become host independent.
+
+* Systems and package
+
+- ASDF system: =image-daemon=
+- Test system: =image-daemon/tests=
+- Package: =IMAGE-DAEMON=
+
+Install the locked dependencies and run all tests:
+
+#+begin_src sh
+./script/bootstrap
+./script/check
+#+end_src
+
+* The control protocol
+
+#+begin_src lisp
+(image-daemon:daemon-call port token ':status)
+
+(multiple-value-bind (socket stream)
+    (image-daemon:daemon-connect port)
+  (image-daemon:daemon-write-packet stream packet)
+  (image-daemon:daemon-read-response stream ':attach))
+#+end_src
+
+Packets are proper lists written readably and framed by one decimal
+character count. Reading rejects reader evaluation, unbalanced
+payloads, and frames above =*DAEMON-PACKET-CHARACTER-LIMIT*=. Every
+required response is bounded by =*DAEMON-CONNECT-TIMEOUT-SECONDS*=.
+Request frames keep the historical =:LOCALGROUP-REQUEST= tag for
+compatibility with deployed endpoints.
+
+* Failures
+
+Failures signal =DAEMON-ERROR= carrying a message, the failing
+operation, and the session identifier when known. Hosts may substitute
+a subclass through =*DAEMON-ERROR-CLASS*= to join their own condition
+hierarchy.
+
+* License
+
+COLL-Attribution. See =LICENSE.lisp=.

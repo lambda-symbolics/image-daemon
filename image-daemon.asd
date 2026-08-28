@@ -15,7 +15,8 @@
 
 (asdf:defsystem #:image-daemon/tests
   :description "Tests for image-daemon."
-  :depends-on (#:image-daemon)
+  :depends-on (#:image-daemon
+               #:sb-posix)
   :serial t
   :components ((:module "tests"
                 :serial t

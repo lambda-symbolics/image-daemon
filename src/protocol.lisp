@@ -245,7 +245,7 @@ detached handoff."
 
 ;;;; -- Loopback Transport --
 
-(defun socket-stream (socket)
+(defun daemon-socket-stream (socket)
   "Return a buffered UTF-8 character stream for SOCKET."
   (sb-bsd-sockets:socket-make-stream
    socket
@@ -269,7 +269,7 @@ detached handoff."
              socket
              (sb-bsd-sockets:make-inet-address "127.0.0.1")
              port))
-          (setf stream (socket-stream socket))
+          (setf stream (daemon-socket-stream socket))
           (values socket stream))
       (error (condition)
         (if stream

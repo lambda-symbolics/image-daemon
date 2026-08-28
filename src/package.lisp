@@ -25,5 +25,6 @@
    #:daemon-call
    #:daemon-connect
    #:daemon-read-packet
+   #:daemon-socket-stream
    #:daemon-read-response
    #:daemon-write-packet))

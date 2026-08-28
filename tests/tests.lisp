@@ -106,11 +106,41 @@
     (check (not (string= (daemon-random-token) token))
            "tokens are fresh")))
 
+(defun test-response-deadline ()
+  "Test required responses stop at the transport deadline."
+  (multiple-value-bind (read-descriptor write-descriptor)
+      (sb-posix:pipe)
+    (let ((input nil))
+      (unwind-protect
+           (progn
+             (setf input
+                   (sb-sys:make-fd-stream
+                    read-descriptor
+                    :input t
+                    :element-type 'character
+                    :external-format ':utf-8
+                    :buffering ':none
+                    :auto-close nil))
+             (let ((*daemon-connect-timeout-seconds* 0.05))
+               (handler-case
+                   (progn
+                     (daemon-read-response input ':status)
+                     (check nil "expected a deadline failure"))
+                 (daemon-error (condition)
+                   (check (search "did not respond in time"
+                                  (daemon-error-message condition))
+                          "response reads stop at the transport deadline")))))
+        (when input
+          (ignore-errors (close input)))
+        (ignore-errors (sb-posix:close read-descriptor))
+        (ignore-errors (sb-posix:close write-descriptor))))))
+
 (defun run-tests ()
   "Run the image-daemon tests and return true on success."
   (setf *assertions* 0)
   (test-framing)
   (test-identifiers)
   (test-identity-material)
+  (test-response-deadline)
   (format t "~&~D image-daemon assertions passed.~%" *assertions*)
   t)

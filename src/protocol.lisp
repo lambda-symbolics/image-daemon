@@ -130,7 +130,7 @@ detached handoff."
       (with-output-to-string (stream)
         (write packet :stream stream)))))
 
-(defun packet-string (packet)
+(defun daemon-packet-string (packet)
   "Return PACKET as one bounded decimal-length-prefixed wire frame."
   (let ((payload (packet-payload packet)))
     (when (> (length payload) *daemon-packet-character-limit*)
@@ -141,7 +141,7 @@ detached handoff."
 
 (defun daemon-write-packet (stream packet)
   "Write and flush one bounded daemon PACKET frame to STREAM."
-  (write-string (packet-string packet) stream)
+  (write-string (daemon-packet-string packet) stream)
   (finish-output stream)
   nil)
 

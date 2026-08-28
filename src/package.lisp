@@ -24,6 +24,7 @@
    ;; transport
    #:daemon-call
    #:daemon-connect
+   #:daemon-packet-string
    #:daemon-read-packet
    #:daemon-socket-stream
    #:daemon-read-response

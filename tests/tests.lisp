@@ -145,6 +145,7 @@
   (test-registry)
   (test-replay)
   (test-localgroup-attachment-close-safety)
+  (test-attachment-client-blocked-detach)
   (test-localgroup-blocking-read-lifecycle)
   (test-runtime-lifecycle)
   (test-relay-authority)

@@ -52,8 +52,9 @@
   "Run a local attachment using explicit input, resize and transport callbacks.
 
 RESIZE-FUNCTION returns NIL or the plist for a resize packet. Observer exit keys
-are local only. Supply SOCKET or a CLOSE-FUNCTION that unblocks a concurrent read.
-The socket transport is shut down before abortive stream close."
+are local only. Supply SOCKET or a CLOSE-FUNCTION that unblocks concurrent I/O.
+Teardown uses transport closure as detach, without writing another packet, and
+shuts down socket I/O before abortive stream close."
   (unless (or socket close-function)
     (daemon-fail :message "An attachment socket or shutdown callback is required."
                  :operation ':attach))
@@ -79,7 +80,6 @@ The socket transport is shut down before abortive stream close."
                                 ((not (eq mode ':read-only))
                                  (daemon-write-packet stream (list :event event))))))
                       (sleep 0.01)))
-        (ignore-errors (daemon-write-packet stream '(:detach)))
         (when socket
           (ignore-errors (sb-bsd-sockets:socket-shutdown socket :direction ':io)))
         (if close-function

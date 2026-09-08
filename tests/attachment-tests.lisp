@@ -222,6 +222,67 @@
         (daemon-stop-thread writer)))
     nil))
 
+(defclass test-attachment-duplex-stream
+    (test-localgroup-close-stream sb-gray:fundamental-character-input-stream)
+  ((read-started :initform (sb-thread:make-semaphore :count 0)
+                 :reader test-attachment-duplex-read-started
+                 :documentation "Signals entry into the receiver's blocking read.")
+   (reader-thread :initform nil :accessor test-attachment-duplex-reader-thread
+                  :documentation "The receiver retained for fixture cleanup."))
+  (:documentation "A duplex stream whose reads and writes require transport shutdown."))
+
+(defmethod sb-gray:stream-read-char ((stream test-attachment-duplex-stream))
+  "Block until the transport close callback supplies end of input."
+  (setf (test-attachment-duplex-reader-thread stream) (bordeaux-threads:current-thread))
+  (sb-thread:signal-semaphore (test-attachment-duplex-read-started stream))
+  (loop until (find ':shutdown (test-localgroup-close-stream-operation-snapshot stream)
+                    :key #'first)
+        do (sleep 0.001))
+  :eof)
+
+(defun test-attachment-client-blocked-detach ()
+  "Require local exit to close a transport even when a detach write would block."
+  (let* ((stream (make-instance 'test-attachment-duplex-stream :stall-writes-p t))
+         (completed (sb-thread:make-semaphore :count 0))
+         (client nil)
+         (failure nil)
+         (returned-p nil)
+         (receiver-reaped-p nil))
+    (flet ((shutdown ()
+             (test-localgroup-close-stream--record stream '(:shutdown :io))
+             (close stream :abort t)))
+      (unwind-protect
+           (progn
+             (setf client
+                   (sb-thread:make-thread
+                    (lambda ()
+                      (handler-case
+                          (daemon-attach-client-run
+                           stream :mode ':control
+                           :input-ready-function
+                           (lambda ()
+                             (unless (sb-thread:wait-on-semaphore
+                                      (test-attachment-duplex-read-started stream) :timeout 2)
+                               (error "Attachment receiver did not start."))
+                             t)
+                           :read-event-function (lambda () :stream-end)
+                           :close-function #'shutdown)
+                        (error (condition) (setf failure condition)))
+                      (sb-thread:signal-semaphore completed))
+                    :name "Blocked attachment detach test"))
+             (setf returned-p (sb-thread:wait-on-semaphore completed :timeout 2)
+                   receiver-reaped-p
+                   (and returned-p
+                        (not (sb-thread:thread-alive-p
+                              (test-attachment-duplex-reader-thread stream))))))
+        (shutdown)
+        (when client (sb-thread:join-thread client :timeout 2))
+        (when (test-attachment-duplex-reader-thread stream)
+          (sb-thread:join-thread (test-attachment-duplex-reader-thread stream) :timeout 2)))
+      (check (and returned-p (null failure))
+             "local stream end closes the attachment without a blocking detach write")
+      (check receiver-reaped-p "attachment exit reaps the receiver before returning"))))
+
 (defun test-localgroup-blocking-read-lifecycle ()
   "Test relay ownership transitions wake or preserve a blocking semantic read."
   (labels ((attachment (mode)

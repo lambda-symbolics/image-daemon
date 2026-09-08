@@ -1,2 +1,8 @@
 git idsmall https://github.com/luciusmagn/idsmall.git :ref 3f4b8e067a1e41b5388f7c5af58585e8c9ab51b9
 ql ironclad 2026-01-01
+ql bordeaux-threads 2026-01-01
+ql serapeum 2026-01-01
+git sexp-store https://github.com/lambda-symbolics/sexp-store.git :ref 815ef23b48b9bd9ef974ada28b9e8c1b5cf11b1f
+git ls-flock https://github.com/lambda-symbolics/ls-flock.git :ref ff7a6abbc53f069c13d9649232ade062409c12da
+git structlisp https://github.com/lambda-symbolics/structlisp.git :ref 66bbfbe947b69f3105f71f5e4293637decc91746
+git ls-compat https://github.com/lambda-symbolics/ls-compat.git :ref 84ca8b1f3be29817f5aff93ac2b341347fd287fb

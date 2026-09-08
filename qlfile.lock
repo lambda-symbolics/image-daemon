@@ -1,0 +1,36 @@
+("quicklisp" .
+ (:class qlot/source/dist:source-dist
+  :initargs (:distribution "https://beta.quicklisp.org/dist/quicklisp.txt" :%version :latest)
+  :version "2026-01-01"))
+("idsmall" .
+ (:class qlot/source/git:source-git
+  :initargs (:remote-url "https://github.com/luciusmagn/idsmall.git" :ref "3f4b8e067a1e41b5388f7c5af58585e8c9ab51b9")
+  :version "git-3f4b8e067a1e41b5388f7c5af58585e8c9ab51b9"))
+("ironclad" .
+ (:class qlot/source/ql:source-ql
+  :initargs (:%version "2026-01-01")
+  :version "ql-2024-10-12"))
+("bordeaux-threads" .
+ (:class qlot/source/ql:source-ql
+  :initargs (:%version "2026-01-01")
+  :version "ql-2024-10-12"))
+("serapeum" .
+ (:class qlot/source/ql:source-ql
+  :initargs (:%version "2026-01-01")
+  :version "ql-2026-01-01"))
+("sexp-store" .
+ (:class qlot/source/git:source-git
+  :initargs (:remote-url "https://github.com/lambda-symbolics/sexp-store.git" :ref "815ef23b48b9bd9ef974ada28b9e8c1b5cf11b1f")
+  :version "git-815ef23b48b9bd9ef974ada28b9e8c1b5cf11b1f"))
+("ls-flock" .
+ (:class qlot/source/git:source-git
+  :initargs (:remote-url "https://github.com/lambda-symbolics/ls-flock.git" :ref "ff7a6abbc53f069c13d9649232ade062409c12da")
+  :version "git-ff7a6abbc53f069c13d9649232ade062409c12da"))
+("structlisp" .
+ (:class qlot/source/git:source-git
+  :initargs (:remote-url "https://github.com/lambda-symbolics/structlisp.git" :ref "66bbfbe947b69f3105f71f5e4293637decc91746")
+  :version "git-66bbfbe947b69f3105f71f5e4293637decc91746"))
+("ls-compat" .
+ (:class qlot/source/git:source-git
+  :initargs (:remote-url "https://github.com/lambda-symbolics/ls-compat.git" :ref "84ca8b1f3be29817f5aff93ac2b341347fd287fb")
+  :version "git-84ca8b1f3be29817f5aff93ac2b341347fd287fb"))

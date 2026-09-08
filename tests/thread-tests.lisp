@@ -58,6 +58,40 @@
                 (eq (sb-thread:thread-error-thread (daemon-error-cause failure)) thread))
            "failure retains the target thread for later reaping")))
 
+(defun test-relay-stop-recovery ()
+  "Close every relay attachment and retain failed writer cleanup for retry."
+  (call-with-blocked-thread-cleanup
+   (lambda (thread cleanup-started release-cleanup)
+     (let* ((socket (make-instance 'sb-bsd-sockets:inet-socket
+                                  :type ':stream :protocol ':tcp))
+            (blocked (make-instance 'attachment :socket socket
+                                    :stream (make-broadcast-stream) :mode ':control))
+            (observer (make-instance 'attachment :socket socket
+                                     :stream (make-broadcast-stream) :mode ':read-only))
+            (relay (make-instance 'relay)))
+       (unwind-protect
+            (progn
+              (transport-start relay)
+              (setf (attachment-writer-thread blocked) thread
+                    (image-daemon::relay-controller relay) blocked
+                    (image-daemon::relay-observers relay) (list observer))
+              (check-blocked-thread-stop
+               thread :cleanup-started cleanup-started :release-cleanup release-cleanup
+                      :stop-function (lambda () (transport-stop relay)))
+              (check (and (image-daemon::attachment-closed-p observer)
+                          (null (image-daemon::relay-controller relay))
+                          (null (image-daemon::relay-observers relay)))
+                     "one failed writer cannot prevent closing later attachments")
+              (check (equal (image-daemon::relay-closing-attachments relay) (list blocked))
+                     "the relay retains only the writer awaiting reaping")
+              (transport-stop relay)
+              (check (and (null (image-daemon::relay-closing-attachments relay))
+                          (not (sb-thread:thread-alive-p thread)))
+                     "retrying relay stop finishes the retained cleanup"))
+         (sb-thread:signal-semaphore release-cleanup)
+         (transport-stop relay)
+         (ignore-errors (sb-bsd-sockets:socket-close socket)))))))
+
 (defun test-thread-stop-deadline ()
   "Exercise bounded termination and attachment/runtime ownership on failure."
   (dolist (owner '(:thread :attachment :runtime))

@@ -126,6 +126,9 @@
             :documentation "The attachment currently allowed to submit terminal input.")
            (observers :initform nil :accessor relay-observers :type list :documentation
             "Read-only attachments receiving rendered terminal output.")
+           (closing-attachments :initform nil :accessor relay-closing-attachments
+            :type list :documentation
+            "Detached attachments retained until their writers have been reaped.")
            (input-condition-variable :initform
             (bordeaux-threads:make-condition-variable :name
                                                       "Image daemonp terminal input")
@@ -195,17 +198,19 @@
   transport)
 
 (defmethod transport-stop ((transport relay))
-  "Stop TERMINAL's transports and close attachments, retaining direct transport."
-  (let ((direct nil) (attachments nil))
+  "Stop relay transports, retaining failed attachment cleanup for a later retry."
+  (let ((direct nil) (attachments nil) (failure nil))
     (bordeaux-threads:with-lock-held ((relay-lock transport))
-      (unless (transport-started-p transport) (return-from transport-stop transport))
-      (setf direct (relay-direct-terminal transport)
+      (setf direct (and (transport-started-p transport)
+                        (relay-direct-terminal transport))
             attachments
-              (remove-duplicates
-               (append
-                (when (relay-controller transport) (list (relay-controller transport)))
-                (relay-observers transport))
-               :test #'eq)
+            (remove-duplicates
+             (append (relay-closing-attachments transport)
+                     (when (relay-controller transport)
+                       (list (relay-controller transport)))
+                     (relay-observers transport))
+             :test #'eq)
+            (relay-closing-attachments transport) attachments
             (relay-controller transport) nil
             (relay-observers transport) nil
             (transport-interactive-p transport) nil
@@ -214,7 +219,16 @@
       (structlisp:deque-clear (relay-input-events transport))
       (sb-thread:condition-broadcast (relay-input-condition-variable transport)))
     (when direct (ignore-errors (transport-stop direct)))
-    (dolist (attachment attachments) (attachment-close attachment)))
+    (dolist (attachment attachments)
+      (handler-case
+          (progn
+            (attachment-close attachment)
+            (bordeaux-threads:with-lock-held ((relay-lock transport))
+              (setf (relay-closing-attachments transport)
+                    (remove attachment (relay-closing-attachments transport) :test #'eq))))
+        (error (condition)
+          (unless failure (setf failure condition)))))
+    (when failure (error failure)))
   transport)
 
 (defmethod transport-write ((transport relay) (text string))

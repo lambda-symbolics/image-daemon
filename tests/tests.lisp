@@ -143,6 +143,7 @@
   (test-identity-material)
   (test-response-deadline)
   (test-thread-stop-deadline)
+  (test-relay-stop-recovery)
   (test-registry)
   (test-replay)
   (test-localgroup-attachment-close-safety)

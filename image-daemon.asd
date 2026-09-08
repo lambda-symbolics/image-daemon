@@ -32,6 +32,7 @@
   :components ((:module "tests"
                 :serial t
                 :components ((:file "tests")
+                             (:file "thread-tests")
                              (:file "runtime-tests")
                              (:file "attachment-tests"))))
   :perform (asdf:test-op (operation component)

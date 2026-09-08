@@ -79,6 +79,12 @@ operation, and the session identifier when known. Hosts may substitute
 a subclass through =*DAEMON-ERROR-CLASS*= to join their own condition
 hierarchy.
 
+Thread stops use one deadline across graceful exit and forced termination. If
+unwind cleanup cannot finish, handle =DAEMON-ERROR= with operation =:STOP-THREAD=.
+Recover the target with =SB-THREAD:THREAD-ERROR-THREAD= on =DAEMON-ERROR-CAUSE=,
+release the blocked cleanup, and retry =DAEMON-STOP-THREAD=. Attachment and runtime
+owners retain their thread references when a stop fails.
+
 * License
 
 COLL-Attribution. See =LICENSE.lisp=.

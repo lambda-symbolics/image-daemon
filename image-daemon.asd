@@ -12,7 +12,7 @@
 
 (asdf:defsystem #:image-daemon/runtime
   :description "Persistent local services, discovery and terminal attachment."
-  :depends-on (#:image-daemon #:sb-posix #:sexp-store #:ls-flock
+  :depends-on (#:image-daemon #:sb-posix #:sexp-store #:ls-flock #:ls-compat/posix
                #:bordeaux-threads #:structlisp #:serapeum)
   :serial t
   :components ((:module "src"

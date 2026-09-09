@@ -55,12 +55,7 @@
 (defun daemon-process-state (pid)
   "Return :ALIVE, :DEAD or :UNKNOWN without mistaking denied access for death."
   (handler-case
-      (progn (sb-posix:kill pid 0) ':alive)
-    (sb-posix:syscall-error (condition)
-      (let ((errno (sb-posix:syscall-errno condition)))
-        (cond ((= errno sb-posix:esrch) ':dead)
-              ((= errno sb-posix:eperm) ':alive)
-              (t ':unknown))))
+      (ls-compat.posix:process-state pid)
     (error () ':unknown)))
 
 (defun daemon-registry-publish (pathname record)
@@ -80,9 +75,10 @@ its own endpoint during process handoff. Unknown process state retains ownership
                                 (getf (rest record) :token))))
          (daemon-fail :message "A live localgroup endpoint already owns this conversation."
                       :operation ':publish :session-id (getf (rest record) :session-id))))
-     (sb-posix:chmod (namestring (uiop:pathname-directory-pathname pathname)) #o700)
+     (setf (ls-compat.posix:file-mode (uiop:pathname-directory-pathname pathname))
+           #o700)
      (sexp-store:snapshot-write pathname record)
-     (sb-posix:chmod (namestring pathname) #o600)))
+     (setf (ls-compat.posix:file-mode pathname) #o600)))
   nil)
 
 (defun daemon-registry-delete-matching (pathname record)

@@ -162,3 +162,56 @@
            (check (relay-detach relay next) "new controller can detach"))
       (transport-stop relay)
       (mapc #'attachment-close (list controller observer next)))))
+
+
+(defun test-runtime-attachment-cleanup ()
+  "Exercise detach cleanup followed immediately by another authenticated request."
+  (let* ((root (merge-pathnames (format nil "daemon-cleanup-~A/" (daemon-random-nonce))
+                                (uiop:temporary-directory)))
+         (runtime nil)
+         (retired-socket nil)
+         (retired-stream nil)
+         (late-shutdowns 0)
+         (shutdown (symbol-function 'sb-bsd-sockets:socket-shutdown)))
+    (labels ((respond (runtime request &key socket stream)
+               (declare (ignore runtime))
+               (if (eq (getf (rest request) :operation) ':detach)
+                   (progn
+                     (setf retired-socket socket retired-stream stream)
+                     (attachment-close
+                      (make-instance 'attachment :socket socket :stream stream
+                                                 :mode ':read-only)))
+                   (daemon-write-packet stream '(:ok))))
+             (shutdown-socket (socket &key direction)
+               (if (and (eq socket retired-socket)
+                        retired-stream (not (open-stream-p retired-stream)))
+                   (incf late-shutdowns)
+                   (funcall shutdown socket :direction direction))))
+      (unwind-protect
+           (progn
+             (setf runtime (daemon-runtime-create :directory root :identifier "cleanup"
+                                                  :token "capability"
+                                                  :request-function #'respond))
+             (daemon-runtime-start runtime)
+             (call-with-replacement
+              'sb-bsd-sockets:socket-shutdown #'shutdown-socket
+              (lambda ()
+                (handler-case
+                    (daemon-call (daemon-runtime-port runtime) "capability" ':detach)
+                  (daemon-error () nil))
+                (check (and retired-stream (not (open-stream-p retired-stream)))
+                       "detach callback closes the transferred stream")
+                (check (wait-until
+                        (lambda ()
+                          (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+                            (null (daemon-runtime-client-threads runtime))))
+                        2)
+                       "request cleanup unregisters the detached transport")
+                (check (zerop late-shutdowns)
+                       "runtime cleanup never shuts down a retired descriptor")
+                (check (eq (first (daemon-call (daemon-runtime-port runtime)
+                                               "capability" ':status)) ':ok)
+                       "the next authenticated connection completes"))))
+        (when runtime (daemon-runtime-stop runtime))
+        (uiop/filesystem:delete-directory-tree root :validate t
+                                               :if-does-not-exist ':ignore)))))

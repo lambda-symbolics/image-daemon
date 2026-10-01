@@ -149,6 +149,7 @@
   (test-localgroup-attachment-close-safety)
   (test-attachment-client-blocked-detach)
   (test-localgroup-blocking-read-lifecycle)
+  (test-runtime-attachment-cleanup)
   (test-runtime-lifecycle)
   (test-relay-authority)
   (format t "~&~D image-daemon assertions passed.~%" *assertions*)

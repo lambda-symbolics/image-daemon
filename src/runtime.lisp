@@ -82,11 +82,13 @@ start until DAEMON-RUNTIME-START, so the host can finish its own startup transac
 
 (defun daemon-runtime--handle-client (runtime socket)
   "Read one authenticated request, then close and unregister SOCKET on every exit."
-  (let ((stream nil))
+  (let ((stream nil)
+        (*daemon-client-transport-lock* (daemon-runtime-lock runtime)))
     (unwind-protect
          (handler-case
              (progn
-               (setf stream (daemon-socket-stream socket))
+               (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+                 (setf stream (daemon-socket-stream socket)))
                (let ((request (daemon-read-packet stream)))
                  (if (daemon-request-valid-p request (daemon-runtime-token runtime))
                      (funcall (daemon-runtime-request-function runtime)
@@ -97,10 +99,10 @@ start until DAEMON-RUNTIME-START, so the host can finish its own startup transac
              (when stream
                (ignore-errors
                 (daemon-write-packet stream (list :error :message (princ-to-string condition)))))))
-      (ignore-errors (sb-bsd-sockets:socket-shutdown socket :direction ':io))
-      (when stream (ignore-errors (close stream :abort t)))
-      (ignore-errors (sb-bsd-sockets:socket-close socket))
       (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+        ;; SOCKET-CLOSE consults the cached stream before closing its descriptor.
+        ;; A raw shutdown here could target a descriptor already reused after detach.
+        (ignore-errors (sb-bsd-sockets:socket-close socket :abort t))
         (setf (daemon-runtime-client-threads runtime)
               (delete (bordeaux-threads:current-thread) (daemon-runtime-client-threads runtime))
               (daemon-runtime-client-sockets runtime)
@@ -167,11 +169,11 @@ start until DAEMON-RUNTIME-START, so the host can finish its own startup transac
     (when listener
       (ignore-errors
        (multiple-value-bind (socket stream) (daemon-connect (daemon-runtime-port runtime))
-         (declare (ignore socket))
-         (close stream :abort t))))
-    (dolist (socket sockets)
-      (ignore-errors (sb-bsd-sockets:socket-shutdown socket :direction ':io))
-      (ignore-errors (sb-bsd-sockets:socket-close socket)))
+         (declare (ignore stream))
+         (sb-bsd-sockets:socket-close socket :abort t))))
+    (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+      (dolist (socket sockets)
+        (ignore-errors (sb-bsd-sockets:socket-close socket :abort t))))
     (daemon-stop-thread server)
     (when listener (ignore-errors (sb-bsd-sockets:socket-close listener)))
     (dolist (thread clients) (daemon-stop-thread thread))

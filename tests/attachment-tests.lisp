@@ -206,7 +206,9 @@
              (let* ((operations (test-localgroup-close-stream-operation-snapshot stream))
                     (close-position (position ':close operations :key #'first)))
                (check
-                (and close-position (plusp close-position)
+                (and (= 1 (count ':shutdown operations :key #'first))
+                     (= 1 (count ':close operations :key #'first))
+                     close-position (plusp close-position)
                      (every
                       (lambda (operation)
                         (or (not (eq (first operation) ':close))
@@ -217,7 +219,7 @@
                      (attachment-closed-p attachment)
                      (structlisp:deque-empty-p (attachment-queue attachment))
                      (not (bordeaux-threads:thread-alive-p writer)))
-                "terminal overflow shuts down before abortive writer close"))))
+                "terminal overflow performs one synchronized shutdown and abortive writer close"))))
         (setf (relay-observers transport) nil)
         (daemon-stop-thread writer)))
     nil))

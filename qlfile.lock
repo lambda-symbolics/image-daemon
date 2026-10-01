@@ -20,17 +20,17 @@
   :version "ql-2026-01-01"))
 ("sexp-store" .
  (:class qlot/source/git:source-git
-  :initargs (:remote-url "https://github.com/lambda-symbolics/sexp-store.git" :ref "815ef23b48b9bd9ef974ada28b9e8c1b5cf11b1f")
-  :version "git-815ef23b48b9bd9ef974ada28b9e8c1b5cf11b1f"))
+  :initargs (:remote-url "https://github.com/lambda-symbolics/sexp-store.git" :ref "778ce8021071bb8ba4066eff9eb822499b8a48ec")
+  :version "git-778ce8021071bb8ba4066eff9eb822499b8a48ec"))
 ("ls-flock" .
  (:class qlot/source/git:source-git
-  :initargs (:remote-url "https://github.com/lambda-symbolics/ls-flock.git" :ref "ff7a6abbc53f069c13d9649232ade062409c12da")
-  :version "git-ff7a6abbc53f069c13d9649232ade062409c12da"))
+  :initargs (:remote-url "https://github.com/lambda-symbolics/ls-flock.git" :ref "0e3e0ada0f5b693cb3f32f46aefbb8dbebcc20f2")
+  :version "git-0e3e0ada0f5b693cb3f32f46aefbb8dbebcc20f2"))
 ("structlisp" .
  (:class qlot/source/git:source-git
   :initargs (:remote-url "https://github.com/lambda-symbolics/structlisp.git" :ref "66bbfbe947b69f3105f71f5e4293637decc91746")
   :version "git-66bbfbe947b69f3105f71f5e4293637decc91746"))
 ("ls-compat" .
  (:class qlot/source/git:source-git
-  :initargs (:remote-url "https://github.com/lambda-symbolics/ls-compat.git" :ref "84ca8b1f3be29817f5aff93ac2b341347fd287fb")
-  :version "git-84ca8b1f3be29817f5aff93ac2b341347fd287fb"))
+  :initargs (:remote-url "https://github.com/lambda-symbolics/ls-compat.git" :ref "24fbc85ec31f3a8f8d2d165a2997e18a21427738")
+  :version "git-24fbc85ec31f3a8f8d2d165a2997e18a21427738"))

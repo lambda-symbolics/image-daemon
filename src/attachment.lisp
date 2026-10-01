@@ -12,6 +12,9 @@
   (* 64 1024)
   "The maximum terminal output characters carried in one attachment packet.")
 
+(defvar *daemon-client-transport-lock* nil
+  "Runtime cleanup lock captured by attachments created in a request callback.")
+
 (defclass attachment nil
           ((socket :initarg :socket :reader attachment-socket :type sb-bsd-sockets:socket
             :documentation "The accepted loopback socket owned by this attachment.")
@@ -20,6 +23,10 @@
            (mode :initarg :mode :reader attachment-mode :type
             (member :read-only :control :take-over) :documentation
             "The observation or terminal-control authority of this attachment.")
+           (transport-lock :initform (or *daemon-client-transport-lock*
+                                        (bordeaux-threads:make-lock "Image daemon transport"))
+            :reader attachment-transport-lock :documentation
+            "Serializes native shutdown and close with runtime cleanup.")
            (lock :initform (bordeaux-threads:make-lock "Image daemonp attachment")
             :reader attachment-lock :type t :documentation
             "The lock protecting output and closure state.")
@@ -32,21 +39,33 @@
             "FIFO serialized packets awaiting the writer with maintained size.")
            (closed-p :initform nil :accessor attachment-closed-p :type boolean
             :documentation "Whether the stream no longer accepts packets.")
+           (socket-shutdown-p :initform nil :accessor attachment-socket-shutdown-p
+            :type boolean :documentation "Whether transport shutdown has been claimed.")
+           (stream-closed-p :initform nil :accessor attachment-stream-closed-p
+            :type boolean :documentation "Whether stream closure has been claimed.")
            (writer-thread :initform nil :accessor attachment-writer-thread :type t
             :documentation "The bounded asynchronous output writer."))
           (:documentation "One persistent read-only or controlling terminal attachment."))
 
 (defun attachment--shutdown-socket (attachment)
-  "Shut down ATTACHMENT's socket I/O without signaling."
-  (ignore-errors
-   (sb-bsd-sockets:socket-shutdown (attachment-socket attachment) :direction ':io))
+  "Shut down ATTACHMENT once, serialized with every transport closer."
+  (bordeaux-threads:with-lock-held ((attachment-transport-lock attachment))
+    (unless (attachment-socket-shutdown-p attachment)
+      (setf (attachment-socket-shutdown-p attachment) t)
+      (ignore-errors
+       (sb-bsd-sockets:socket-shutdown (attachment-socket attachment) :direction ':io))))
   nil)
 
 (defun attachment--close-stream (attachment)
-  "Shut down and abortively close ATTACHMENT's duplex transport without signaling."
+  "Shut down and abortively close ATTACHMENT once under its transport lock."
   (attachment--shutdown-socket attachment)
-  (ignore-errors (close (attachment-stream attachment) :abort t))
+  (bordeaux-threads:with-lock-held ((attachment-transport-lock attachment))
+    (unless (attachment-stream-closed-p attachment)
+      (ignore-errors
+       (close (attachment-stream attachment) :abort t)
+       (setf (attachment-stream-closed-p attachment) t))))
   nil)
+
 
 (defun attachment--writer-loop (attachment)
   "Write ATTACHMENT's queued packets until closure or transport failure."

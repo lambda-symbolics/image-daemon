@@ -44,12 +44,16 @@ compatibility with deployed endpoints.
 
 * Persistent services and attachments
 
-Create an unpublished endpoint with =DAEMON-RUNTIME-CREATE=, supplying an explicit
-registry directory, identifier and request callback. After your own startup
-transaction, call =DAEMON-RUNTIME-START=. Stop and unpublish with
+Create an endpoint with =DAEMON-RUNTIME-CREATE= and a request callback. The default
+mode publishes a discovery record and requires a registry directory and identifier.
+Pass =:PUBLISH-P NIL= for an unpublished ephemeral runtime; it needs neither and
+keeps no registry pathname. After your own startup transaction, call
+=DAEMON-RUNTIME-START=. Stop and unpublish a published runtime with
 =DAEMON-RUNTIME-STOP=. The callback receives =(runtime request &key socket stream)=
 after protocol and capability validation; write the response with the packet API.
-You may subclass =DAEMON-RUNTIME= and supply application-neutral initargs.
+You may subclass =DAEMON-RUNTIME= and specialize
+=DAEMON-RUNTIME-REQUEST-VALID-P= and =DAEMON-RUNTIME-ERROR-RESPONSE= for an
+application protocol.
 
 Use =DAEMON-REGISTRY-DISCOVER= to inspect complete discovery records. Registry
 writers serialize with a directory file lock; publication retains live or

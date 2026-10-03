@@ -13,5 +13,7 @@ fi
 exec sbcl --noinform --non-interactive \
   --load "$root/.qlot/setup.lisp" \
   --eval '(require :asdf)' \
+  --eval "(asdf:initialize-source-registry '(:source-registry (:directory #p\"$root/\") :inherit-configuration))" \
   --eval '(asdf:load-asd (truename "image-daemon.asd"))' \
+  --eval '(unless (equal (truename ".") (asdf:system-source-directory (asdf:find-system "image-daemon"))) (error "image-daemon source precedence is incorrect"))' \
   --eval '(asdf:test-system "image-daemon")'

@@ -7,6 +7,18 @@
          (progn (setf (symbol-function name) replacement) (funcall function))
       (setf (symbol-function name) original))))
 
+(defclass hooked-runtime (daemon-runtime)
+  ())
+
+(defmethod daemon-runtime-request-valid-p ((runtime hooked-runtime) request)
+  (daemon-request-valid-p request (daemon-runtime-token runtime)
+                          :request-tag ':custom-request
+                          :protocol-version nil))
+
+(defmethod daemon-runtime-error-response ((runtime hooked-runtime) condition)
+  (declare (ignore runtime condition))
+  '(:hook-error :seen t))
+
 (defun test-registry ()
   "Exercise ownership, malformed records, reconciliation and compare-and-delete."
   (let* ((root (merge-pathnames (format nil "daemon-registry-~A/" (daemon-random-nonce))
@@ -132,6 +144,113 @@
         (when blocked (ignore-errors (sb-bsd-sockets:socket-close blocked)))
         (uiop/filesystem:delete-directory-tree root :validate t :if-does-not-exist
                                                ':ignore)))))
+
+(defun test-runtime-ephemeral-and-hooks ()
+  "Exercise unpublished lifecycle and customizable protocol hooks."
+  (let ((runtime nil)
+        (root (merge-pathnames (format nil "daemon-ephemeral-~A/" (daemon-random-nonce))
+                               (uiop/stream:temporary-directory))))
+    (labels ((respond (runtime request &key socket stream)
+               (declare (ignore runtime socket))
+               (if (eq (getf (rest request) :operation) ':explode)
+                   (daemon-fail :message "dispatch failed" :operation ':dispatch)
+                   (daemon-write-packet stream '(:ok :hook t))))
+             (call (request)
+               (multiple-value-bind (socket stream)
+                   (daemon-connect (daemon-runtime-port runtime))
+                 (declare (ignore socket))
+                 (unwind-protect
+                      (progn
+                        (daemon-write-packet stream request)
+                        (daemon-read-packet stream))
+                   (ignore-errors (close stream))))))
+      (unwind-protect
+           (progn
+             (setf runtime
+                   (daemon-runtime-create
+                    :directory root :publish-p nil :token "capability"
+                    :request-function #'respond :class 'hooked-runtime))
+             (check (and (null (daemon-runtime-identifier runtime))
+                         (null (daemon-runtime-registry-pathname runtime))
+                         (null (daemon-runtime-publish-p runtime))
+                         (not (probe-file root)))
+                    "ephemeral runtimes do not require registry metadata")
+             (daemon-runtime-start runtime)
+             (check (equal (call '(:custom-request :version 999
+                                   :token "capability" :operation :status))
+                           '(:ok :hook t))
+                    "custom request validation accepts a versionless protocol")
+             (check (equal (call '(:custom-request :version 999
+                                   :token "wrong" :operation :status))
+                           '(:hook-error :seen t))
+                    "custom error responses handle authentication rejection")
+             (check (equal (call '(:wrong-request :version 999
+                                   :token "capability" :operation :status))
+                           '(:hook-error :seen t))
+                    "custom error responses handle malformed request tags")
+             (check (equal (call '(:custom-request :version 999
+                                   :token "capability" :operation 7))
+                           '(:hook-error :seen t))
+                    "custom validation still requires keyword operations")
+             (check (equal (call '(:custom-request :version 999
+                                   :token "capability" :operation :explode))
+                           '(:hook-error :seen t))
+                    "custom error responses handle callback failures")
+             (check (daemon-request-valid-p
+                     '(:custom-request :version 999 :token "capability"
+                       :operation :status)
+                     "capability" :request-tag ':custom-request
+                     :protocol-version nil)
+                    "NIL protocol version skips only version validation")
+             (check (not (daemon-request-valid-p
+                          '(:custom-request :version 999 :token "wrong"
+                            :operation :status)
+                          "capability" :request-tag ':custom-request
+                          :protocol-version nil))
+                    "versionless validation still checks the capability")
+             (check (not (daemon-request-valid-p
+                          '(:custom-request :version 999 :token "capability")
+                          "capability" :request-tag ':custom-request
+                          :protocol-version nil))
+                    "versionless validation still checks the operation")
+             (daemon-runtime-stop runtime)
+             (setf runtime nil)
+             (check (not (probe-file root))
+                    "stopping an ephemeral runtime does not create a registry directory"))
+        (when runtime (daemon-runtime-stop runtime))
+        (uiop/filesystem:delete-directory-tree root :validate t
+                                               :if-does-not-exist ':ignore)))))
+
+(defun test-runtime-start-rollback ()
+  "Exercise publication rollback when server startup fails."
+  (let* ((root (merge-pathnames (format nil "daemon-rollback-~A/" (daemon-random-nonce))
+                                (uiop/stream:temporary-directory)))
+         (runtime nil)
+         (failed-p nil))
+    (unwind-protect
+         (progn
+           (setf runtime
+                 (daemon-runtime-create
+                  :directory root :identifier "rollback" :token "capability"
+                  :request-function (lambda (runtime request &key socket stream)
+                                      (declare (ignore runtime request socket stream)))))
+           (call-with-replacement
+            'bordeaux-threads:make-thread
+            (lambda (&rest arguments)
+              (declare (ignore arguments))
+              (error "thread startup failed"))
+            (lambda ()
+              (handler-case
+                  (daemon-runtime-start runtime)
+                (error () (setf failed-p t)))))
+           (check failed-p "server startup failure is reported")
+           (check (and (null (daemon-runtime-server-thread runtime))
+                       (null (daemon-registry-read
+                              (daemon-runtime-registry-pathname runtime))))
+                  "failed startup rolls back its registry publication"))
+      (when runtime (daemon-runtime-stop runtime))
+      (uiop/filesystem:delete-directory-tree root :validate t
+                                             :if-does-not-exist ':ignore))))
 
 (defun test-relay-authority ()
   "Exercise exclusive control, observer rejection and takeover authority."

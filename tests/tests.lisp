@@ -152,6 +152,8 @@
   (test-localgroup-blocking-read-lifecycle)
   (test-runtime-attachment-cleanup)
   (test-runtime-lifecycle)
+  (test-runtime-ephemeral-and-hooks)
+  (test-runtime-start-rollback)
   (test-relay-authority)
   (format t "~&~D image-daemon assertions passed.~%" *assertions*)
   t)

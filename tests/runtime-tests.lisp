@@ -221,6 +221,69 @@
         (uiop/filesystem:delete-directory-tree root :validate t
                                                :if-does-not-exist ':ignore)))))
 
+(defun test-runtime-ephemeral-failures ()
+  "Exercise registry-free startup failure and retryable stop ownership."
+  (let ((runtime nil))
+    (labels ((without-registry (names function)
+               (if names
+                   (call-with-replacement
+                    (first names)
+                    (lambda (&rest arguments)
+                      (declare (ignore arguments))
+                      (error "An ephemeral runtime accessed the registry."))
+                    (lambda () (without-registry (rest names) function)))
+                   (funcall function)))
+             (respond (runtime request &key socket stream)
+               (declare (ignore runtime request socket stream))))
+      (without-registry
+       '(daemon-registry-reconcile daemon-registry-pathname
+         daemon-registry-publish daemon-registry-delete-matching)
+       (lambda ()
+         (unwind-protect
+              (progn
+                (setf runtime (daemon-runtime-create :publish-p nil
+                                                     :request-function #'respond))
+                (call-with-replacement
+                 'bordeaux-threads:make-thread
+                 (lambda (&rest arguments)
+                   (declare (ignore arguments))
+                   (daemon-fail :message "Injected startup failure." :operation ':start))
+                 (lambda ()
+                   (expect-failure (lambda () (daemon-runtime-start runtime)) ':start)))
+                (check (and (null (daemon-runtime-server-thread runtime))
+                            (daemon-runtime-listener runtime))
+                       "failed startup retains the listener for explicit cleanup")
+                (daemon-runtime-stop runtime)
+                (setf runtime (daemon-runtime-create :publish-p nil
+                                                     :request-function #'respond))
+                (daemon-runtime-start runtime)
+                (let ((listener (daemon-runtime-listener runtime))
+                      (server (daemon-runtime-server-thread runtime))
+                      (stop-thread (symbol-function 'daemon-stop-thread))
+                      (fail-p t))
+                  (call-with-replacement
+                   'daemon-stop-thread
+                   (lambda (thread)
+                     (if fail-p
+                         (progn
+                           (setf fail-p nil)
+                           (daemon-fail :message "Injected reap failure."
+                                        :operation ':stop-thread))
+                         (funcall stop-thread thread)))
+                   (lambda ()
+                     (expect-failure (lambda () (daemon-runtime-stop runtime)) ':stop-thread)
+                     (check (and (daemon-runtime-stopping-p runtime)
+                                 (eq (daemon-runtime-listener runtime) listener)
+                                 (eq (daemon-runtime-server-thread runtime) server))
+                            "failed stop retains transport ownership for retry")
+                     (daemon-runtime-stop runtime)))
+                  (check (and (null (daemon-runtime-listener runtime))
+                              (null (daemon-runtime-server-thread runtime))
+                              (not (bordeaux-threads:thread-alive-p server)))
+                         "retry stops and releases the owned transport")))
+           (when runtime
+             (daemon-runtime-stop runtime))))))))
+
 (defun test-runtime-start-rollback ()
   "Exercise publication rollback when server startup fails."
   (let* ((root (merge-pathnames (format nil "daemon-rollback-~A/" (daemon-random-nonce))

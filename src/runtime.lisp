@@ -4,7 +4,9 @@
 
 (defclass daemon-runtime ()
   ((identifier :initarg :identifier :accessor daemon-runtime-identifier
-               :documentation "The public discovery identifier.")
+               :documentation "The public discovery identifier, or NIL for ephemeral runtimes.")
+   (publish-p :initarg :publish-p :reader daemon-runtime-publish-p
+              :documentation "Whether this runtime owns a registry record.")
    (token :initarg :token :reader daemon-runtime-token
           :documentation "The private request capability, never a display value.")
    (listener :initarg :listener :accessor daemon-runtime-listener
@@ -12,7 +14,7 @@
    (port :initarg :port :reader daemon-runtime-port
          :documentation "The bound loopback TCP port.")
    (registry-pathname :initarg :registry-pathname :accessor daemon-runtime-registry-pathname
-                      :documentation "The owned private discovery record.")
+                      :documentation "The owned private discovery record, or NIL when unpublished.")
    (created-at :initarg :created-at :reader daemon-runtime-created-at
                :documentation "Universal time at initial creation.")
    (lock :initform (bordeaux-threads:make-lock "Image daemon runtime")
@@ -29,7 +31,20 @@
                      :documentation "Callback (runtime request &key socket stream) for authenticated requests.")
    (error-function :initarg :error-function :initform nil :reader daemon-runtime-error-function
                    :documentation "Optional callback for accept-loop failures."))
-  (:documentation "One discoverable local service with explicitly owned transport resources."))
+  (:documentation "One local service with explicitly owned transport resources."))
+
+(defgeneric daemon-runtime-request-valid-p (runtime request)
+  (:documentation "Return true when RUNTIME accepts REQUEST's protocol and capability."))
+
+(defmethod daemon-runtime-request-valid-p ((runtime daemon-runtime) request)
+  (daemon-request-valid-p request (daemon-runtime-token runtime)))
+
+(defgeneric daemon-runtime-error-response (runtime condition)
+  (:documentation "Return the packet sent when RUNTIME rejects or cannot handle a request."))
+
+(defmethod daemon-runtime-error-response ((runtime daemon-runtime) condition)
+  (declare (ignore runtime))
+  (list :error :message (princ-to-string condition)))
 
 (defun daemon-runtime-record (runtime)
   "Return RUNTIME's current private discovery record."
@@ -38,26 +53,38 @@
                           :port (daemon-runtime-port runtime)
                           :created-at (daemon-runtime-created-at runtime)))
 
-(defun daemon-request-valid-p (request token)
-  "Return true when REQUEST has the deployed protocol version and TOKEN."
+(defun daemon-request-valid-p (request token &key
+                                             (request-tag ':localgroup-request)
+                                             (protocol-version *daemon-protocol-version*))
+  "Return true when REQUEST has REQUEST-TAG, TOKEN and a valid operation.
+
+When PROTOCOL-VERSION is NIL, omit only the version comparison."
   (handler-case
-      (and (proper-list-p request) (eq (first request) ':localgroup-request)
-           (= (getf (rest request) :version) *daemon-protocol-version*)
+      (and (proper-list-p request)
+           (eq (first request) request-tag)
+           (or (null protocol-version)
+               (= (getf (rest request) :version) protocol-version))
            (stringp (getf (rest request) :token))
            (string= (getf (rest request) :token) token)
            (keywordp (getf (rest request) :operation)))
     (error () nil)))
 
 (defun daemon-runtime-create (&key directory identifier request-function error-function
-                                  token created-at (class 'daemon-runtime) initargs)
-  "Open an unpublished endpoint beneath DIRECTORY.
+                                  token created-at (publish-p t)
+                                  (class 'daemon-runtime) initargs)
+  "Open a runtime, published unless PUBLISH-P is NIL.
 
-CLASS may extend DAEMON-RUNTIME with host state supplied in INITARGS. No threads
-start until DAEMON-RUNTIME-START, so the host can finish its own startup transaction."
-  (unless (and directory (uiop:directory-pathname-p directory) (functionp request-function))
-    (daemon-fail :message "An explicit directory and request callback are required."
+Published runtimes require DIRECTORY and IDENTIFIER. Ephemeral runtimes do not
+inspect or modify the registry and retain no registry pathname. No threads
+start until DAEMON-RUNTIME-START."
+  (unless (and (functionp request-function)
+               (or (not publish-p)
+                   (and directory (uiop:directory-pathname-p directory)
+                        identifier)))
+    (daemon-fail :message "A published endpoint requires an explicit directory and identifier, and a request callback."
                  :operation ':create))
-  (daemon-registry-reconcile directory)
+  (when publish-p
+    (daemon-registry-reconcile directory))
   (let ((listener (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
         (completed-p nil))
     (unwind-protect
@@ -70,9 +97,11 @@ start until DAEMON-RUNTIME-START, so the host can finish its own startup transac
              (declare (ignore address))
              (prog1
                  (apply #'make-instance class
-                        :identifier identifier :token (or token (daemon-random-token))
+                        :identifier identifier :publish-p publish-p
+                        :token (or token (daemon-random-token))
                         :listener listener :port port
-                        :registry-pathname (daemon-registry-pathname directory identifier)
+                        :registry-pathname (and publish-p
+                                                (daemon-registry-pathname directory identifier))
                         :created-at (or created-at (get-universal-time))
                         :request-function request-function :error-function error-function
                         initargs)
@@ -90,15 +119,16 @@ start until DAEMON-RUNTIME-START, so the host can finish its own startup transac
                (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
                  (setf stream (daemon-socket-stream socket)))
                (let ((request (daemon-read-packet stream)))
-                 (if (daemon-request-valid-p request (daemon-runtime-token runtime))
-                     (funcall (daemon-runtime-request-function runtime)
-                              runtime request :socket socket :stream stream)
-                     (daemon-write-packet
-                      stream (list :error :message "The localgroup request was rejected.")))))
+                 (unless (daemon-runtime-request-valid-p runtime request)
+                   (daemon-fail :message "The localgroup request was rejected."
+                                :operation ':request))
+                 (funcall (daemon-runtime-request-function runtime)
+                          runtime request :socket socket :stream stream)))
            (error (condition)
              (when stream
                (ignore-errors
-                (daemon-write-packet stream (list :error :message (princ-to-string condition)))))))
+                (daemon-write-packet
+                 stream (daemon-runtime-error-response runtime condition))))))
       (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
         ;; SOCKET-CLOSE consults the cached stream before closing its descriptor.
         ;; A raw shutdown here could target a descriptor already reused after detach.
@@ -106,7 +136,8 @@ start until DAEMON-RUNTIME-START, so the host can finish its own startup transac
         (setf (daemon-runtime-client-threads runtime)
               (delete (bordeaux-threads:current-thread) (daemon-runtime-client-threads runtime))
               (daemon-runtime-client-sockets runtime)
-              (delete socket (daemon-runtime-client-sockets runtime)))))))
+              (delete socket (daemon-runtime-client-sockets runtime))))))
+)
 
 (defun daemon-runtime--serve (runtime)
   "Accept requests until RUNTIME stops; never register a client after shutdown."
@@ -137,7 +168,7 @@ start until DAEMON-RUNTIME-START, so the host can finish its own startup transac
   nil)
 
 (defun daemon-runtime-start (runtime)
-  "Publish and start RUNTIME, rolling back ownership if thread creation fails."
+  "Publish when configured and start RUNTIME, rolling back ownership on failure."
   (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
     (when (daemon-runtime-server-thread runtime)
       (return-from daemon-runtime-start runtime))
@@ -146,19 +177,21 @@ start until DAEMON-RUNTIME-START, so the host can finish its own startup transac
     (let ((completed-p nil))
       (unwind-protect
            (progn
-             (daemon-registry-publish (daemon-runtime-registry-pathname runtime)
-                                      (daemon-runtime-record runtime))
+             (when (daemon-runtime-publish-p runtime)
+               (daemon-registry-publish (daemon-runtime-registry-pathname runtime)
+                                        (daemon-runtime-record runtime)))
              (setf (daemon-runtime-server-thread runtime)
                    (bordeaux-threads:make-thread
                     (lambda () (daemon-runtime--serve runtime)) :name "Image daemon endpoint")
                    completed-p t))
         (unless completed-p
-          (daemon-registry-delete-matching (daemon-runtime-registry-pathname runtime)
-                                           (daemon-runtime-record runtime))))))
+          (when (daemon-runtime-publish-p runtime)
+            (daemon-registry-delete-matching (daemon-runtime-registry-pathname runtime)
+                                             (daemon-runtime-record runtime)))))))
   runtime)
 
 (defun daemon-runtime-stop (runtime)
-  "Stop RUNTIME, unblock socket readers and writers, and delete only its own record."
+  "Stop RUNTIME, unblock socket readers and writers, and unpublish its record."
   (let (listener server clients sockets)
     (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
       (setf (daemon-runtime-stopping-p runtime) t
@@ -180,6 +213,7 @@ start until DAEMON-RUNTIME-START, so the host can finish its own startup transac
     (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
       (setf (daemon-runtime-listener runtime) nil
             (daemon-runtime-server-thread runtime) nil))
-    (daemon-registry-delete-matching (daemon-runtime-registry-pathname runtime)
-                                     (daemon-runtime-record runtime)))
+    (when (daemon-runtime-publish-p runtime)
+      (daemon-registry-delete-matching (daemon-runtime-registry-pathname runtime)
+                                       (daemon-runtime-record runtime))))
   nil)

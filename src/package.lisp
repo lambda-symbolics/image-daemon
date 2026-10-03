@@ -9,6 +9,9 @@
            #:daemon-runtime-stop
            #:daemon-runtime-start
            #:daemon-runtime-create
+           #:daemon-runtime-publish-p
+           #:daemon-runtime-request-valid-p
+           #:daemon-runtime-error-response
            #:daemon-request-valid-p
            #:daemon-runtime-record
            #:daemon-runtime-error-function

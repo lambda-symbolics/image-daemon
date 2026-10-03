@@ -72,6 +72,12 @@ abortive stream close and join the writer with a bounded wait. The client-side
 =DAEMON-ATTACH-CLIENT-RUN= accepts input-readiness, event-read and resize callbacks;
 supply its socket or a shutdown callback that unblocks concurrent reads.
 
+When the hosted application is about to exit with a status its launcher acts on,
+call =RELAY-FINISH= with that status and an optional message. Every client
+receives it after the output already queued for it, and =DAEMON-ATTACH-CLIENT-RUN=
+returns it as =(:STATUS STATUS :MESSAGE MESSAGE)=, so a relaying front process can
+exit exactly as a foreground application would have. Any other end returns NIL.
+
 * Failures
 
 Failures signal =DAEMON-ERROR= carrying a message, the failing

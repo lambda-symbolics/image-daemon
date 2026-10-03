@@ -356,3 +356,55 @@
         (attachment-close next-client)
         (when reader (bordeaux-threads:join-thread reader)))))
   nil)
+
+(defun test-relay-finish-exit ()
+  "Require RELAY-FINISH to deliver queued output and then the exit to a real client."
+  (let ((listener (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
+        (transport (relay-create))
+        (output (make-string-output-stream))
+        (client-socket nil)
+        (client-stream nil)
+        (server-socket nil)
+        (attachment nil)
+        (client nil)
+        (result nil))
+    (unwind-protect
+         (progn
+           (setf (sb-bsd-sockets:sockopt-reuse-address listener) t)
+           (sb-bsd-sockets:socket-bind listener (sb-bsd-sockets:make-inet-address "127.0.0.1") 0)
+           (sb-bsd-sockets:socket-listen listener 1)
+           (multiple-value-setq (client-socket client-stream)
+             (daemon-connect (nth-value 1 (sb-bsd-sockets:socket-name listener))))
+           (setf server-socket (sb-bsd-sockets:socket-accept listener)
+                 attachment (attachment-create server-socket
+                                               (daemon-socket-stream server-socket)
+                                               ':control))
+           (check (relay-attach transport attachment :rows 24 :columns 80 :styled-p nil
+                                                     :session-id "EXIT")
+                  "the relay accepts a controlling client")
+           (setf client
+                 (sb-thread:make-thread
+                  (lambda ()
+                    (setf result
+                          (daemon-attach-client-run client-stream
+                                                    :socket client-socket
+                                                    :mode ':control
+                                                    :input-ready-function (lambda () nil)
+                                                    :read-event-function (lambda () nil)
+                                                    :output-stream output)))
+                  :name "Relay finish client"))
+           (transport-write transport "goodbye")
+           (relay-finish transport :status 76 :message "Update to 9.9.9.")
+           (check (wait-until (lambda () (not (sb-thread:thread-alive-p client))) 5)
+                  "the client returns once the application exit arrives")
+           (check (equal result '(:status 76 :message "Update to 9.9.9."))
+                  "the client returns the application's exit status and message")
+           (check (search "goodbye" (get-output-stream-string output))
+                  "output queued before the exit is delivered first")
+           (check (not (relay-attached-p transport))
+                  "finishing releases the controlling attachment"))
+      (when (and client (sb-thread:thread-alive-p client))
+        (sb-thread:terminate-thread client))
+      (when attachment (ignore-errors (attachment-close attachment)))
+      (when client-socket (ignore-errors (sb-bsd-sockets:socket-close client-socket)))
+      (ignore-errors (sb-bsd-sockets:socket-close listener)))))

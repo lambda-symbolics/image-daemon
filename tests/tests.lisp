@@ -148,6 +148,7 @@
   (test-replay)
   (test-localgroup-attachment-close-safety)
   (test-attachment-client-blocked-detach)
+  (test-relay-finish-exit)
   (test-localgroup-blocking-read-lifecycle)
   (test-runtime-attachment-cleanup)
   (test-runtime-lifecycle)

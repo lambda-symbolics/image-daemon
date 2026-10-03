@@ -78,6 +78,7 @@
            #:attachment-create
            #:attachment-send
            #:attachment-close
+           #:attachment-finish
            #:daemon-stop-thread
            #:relay
            #:transport
@@ -108,6 +109,7 @@
            #:relay-attach
            #:relay-detach
            #:relay-release-control
+           #:relay-finish
            #:relay-observer-count
            #:relay-attached-p
            #:relay-attachment-kind

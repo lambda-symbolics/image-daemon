@@ -31,8 +31,19 @@
                       (transport-resize relay :rows rows :columns columns :styled-p styled-p))))))))
   nil)
 
-(defun daemon-attach-receive (stream output-stream stop-function)
-  "Copy remote output to OUTPUT-STREAM and always call STOP-FUNCTION on exit."
+(defun daemon-attach--exit-p (packet)
+  "Return true when PACKET is a well-formed application exit packet."
+  (and (proper-list-p packet)
+       (eq (first packet) ':exit)
+       (typep (getf (rest packet) :status) '(integer 0 255))
+       (typep (getf (rest packet) :message) '(or null string))
+       t))
+
+(defun daemon-attach-receive (stream output-stream stop-function &key exit-function)
+  "Copy remote output to OUTPUT-STREAM and always call STOP-FUNCTION on exit.
+
+A well-formed exit packet ends the attachment after EXIT-FUNCTION, when
+supplied, receives its (:STATUS STATUS :MESSAGE MESSAGE) plist."
   (unwind-protect
        (handler-case
            (loop for packet = (daemon-read-packet stream) while packet
@@ -41,6 +52,13 @@
                        (when (stringp (second packet))
                          (write-string (second packet) output-stream)
                          (finish-output output-stream)))
+                      (:exit
+                       (when (daemon-attach--exit-p packet)
+                         (when exit-function
+                           (funcall exit-function
+                                    (list :status (getf (rest packet) :status)
+                                          :message (getf (rest packet) :message))))
+                         (return)))
                       ((:detached :revoked) (return))))
          (error () nil))
     (funcall stop-function))
@@ -54,20 +72,27 @@
 RESIZE-FUNCTION returns NIL or the plist for a resize packet. Observer exit keys
 are local only. Supply SOCKET or a CLOSE-FUNCTION that unblocks concurrent I/O.
 Teardown uses transport closure as detach, without writing another packet, and
-shuts down socket I/O before abortive stream close."
+shuts down socket I/O before abortive stream close.
+
+Return the (:STATUS STATUS :MESSAGE MESSAGE) plist when the application ended
+the attachment through RELAY-FINISH, and NIL for any other end."
   (unless (or socket close-function)
     (daemon-fail :message "An attachment socket or shutdown callback is required."
                  :operation ':attach))
   (let ((lock (bordeaux-threads:make-lock "Image daemon attach client"))
-        (stopped-p nil) (receiver nil))
+        (stopped-p nil) (receiver nil) (exit nil))
     (labels ((stop () (bordeaux-threads:with-lock-held (lock) (setf stopped-p t)))
 
-             (stopped-p () (bordeaux-threads:with-lock-held (lock) stopped-p)))
+             (stopped-p () (bordeaux-threads:with-lock-held (lock) stopped-p))
+
+             (record-exit (plist) (bordeaux-threads:with-lock-held (lock) (setf exit plist))))
       (unwind-protect
            (progn
              (setf receiver
                    (bordeaux-threads:make-thread
-                    (lambda () (daemon-attach-receive stream output-stream #'stop))
+                    (lambda ()
+                      (daemon-attach-receive stream output-stream #'stop
+                                             :exit-function #'record-exit))
                     :name "Image daemon attach input"))
              (loop until (stopped-p)
                    do (let ((resize (and resize-function (funcall resize-function))))
@@ -85,5 +110,5 @@ shuts down socket I/O before abortive stream close."
         (if close-function
             (ignore-errors (funcall close-function))
             (ignore-errors (close stream :abort t)))
-        (daemon-stop-thread receiver))))
-  nil)
+        (daemon-stop-thread receiver))
+      (bordeaux-threads:with-lock-held (lock) exit))))

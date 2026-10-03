@@ -134,6 +134,24 @@
     (when writer (daemon-stop-thread writer)))
   nil)
 
+(defun attachment-finish (attachment packet)
+  "Send PACKET as ATTACHMENT's last packet, then reap its writer and close it.
+
+Unlike ATTACHMENT-CLOSE, already queued output and PACKET are delivered before
+the stream closes; a client that stops reading is cut off at the writer's stop
+deadline."
+  (let ((writer nil))
+    (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+      (unless (attachment-closed-p attachment)
+        (structlisp:deque-push-back (attachment-queue attachment)
+                                    (daemon-packet-string packet))
+        (setf (attachment-closed-p attachment) t))
+      (setf writer (attachment-writer-thread attachment))
+      (bordeaux-threads:condition-notify (attachment-condition-variable attachment)))
+    (when writer (daemon-stop-thread writer))
+    (attachment--close-stream attachment))
+  nil)
+
 (defclass relay (transport)
           ((lock :initform (bordeaux-threads:make-lock "Image daemonp terminal") :reader
             relay-lock :type t :documentation
@@ -401,6 +419,32 @@
       (attachment-send controller '(:detached))
       (attachment-close controller))
     (not (null direct))))
+
+(defun relay-finish (transport &key status message)
+  "Tell every attachment its application exits with STATUS, then release them.
+
+Each controlling or observing client receives (:EXIT :STATUS STATUS :MESSAGE
+MESSAGE) after any queued output, which DAEMON-ATTACH-CLIENT-RUN returns, so a
+relaying launcher can exit as the detached application would have. A direct
+terminal is left to the application."
+  (check-type status (integer 0 255))
+  (check-type message (or null string))
+  (let ((attachments nil))
+    (bordeaux-threads:with-lock-held ((relay-lock transport))
+      (setf attachments (remove-duplicates
+                         (append (when (relay-controller transport)
+                                   (list (relay-controller transport)))
+                                 (relay-observers transport))
+                         :test #'eq)
+            (relay-controller transport) nil
+            (relay-observers transport) nil)
+      (unless (relay-direct-terminal transport)
+        (setf (transport-interactive-p transport) nil))
+      (structlisp:deque-clear (relay-input-events transport))
+      (sb-thread:condition-broadcast (relay-input-condition-variable transport)))
+    (dolist (attachment attachments)
+      (attachment-finish attachment (list :exit :status status :message message))))
+  transport)
 
 (defun relay-observer-count (transport)
   "Return TERMINAL's current read-only attachment count."

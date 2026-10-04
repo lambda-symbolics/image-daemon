@@ -2,6 +2,21 @@
 (defpackage #:image-daemon
   (:use #:cl)
   (:export #:relay-create
+           #:*handoff-supervisor-script*
+           #:handoff-ticket-pathname
+           #:handoff-ticket-sibling
+           #:handoff-ticket-family
+           #:handoff-ticket-write
+           #:handoff-ticket-read
+           #:handoff-ticket-claim
+           #:handoff-ticket-owned-record
+           #:handoff-ticket-cancel
+           #:handoff-ticket-replacement-pid
+           #:handoff-ticket-launcher-pid
+           #:handoff-ticket-delete
+           #:handoff-launch-supervised
+           #:daemon-endpoint-status
+           #:daemon-wait-until
            #:daemon-attach-client-run
            #:daemon-attach-receive
            #:relay-read-attachment

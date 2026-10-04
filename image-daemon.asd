@@ -22,7 +22,8 @@
                              (:file "transport")
                              (:file "attachment")
                              (:file "runtime")
-                             (:file "client"))))
+                             (:file "client")
+                             (:file "handoff"))))
   :in-order-to ((asdf:test-op (asdf:test-op #:image-daemon/tests))))
 
 (asdf:defsystem #:image-daemon/tests
@@ -34,7 +35,8 @@
                 :components ((:file "tests")
                              (:file "thread-tests")
                              (:file "runtime-tests")
-                             (:file "attachment-tests"))))
+                             (:file "attachment-tests")
+                             (:file "handoff-tests"))))
   :perform (asdf:test-op (operation component)
              (declare (ignore operation component))
              (uiop:symbol-call '#:image-daemon/tests '#:run-tests)))

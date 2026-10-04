@@ -156,5 +156,8 @@
   (test-runtime-ephemeral-failures)
   (test-runtime-start-rollback)
   (test-relay-authority)
+  (test-handoff-tickets)
+  #-win32 (test-handoff-supervised-launch)
+  (test-handoff-endpoint-readiness)
   (format t "~&~D image-daemon assertions passed.~%" *assertions*)
   t)

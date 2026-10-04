@@ -82,6 +82,27 @@ receives it after the output already queued for it, and =DAEMON-ATTACH-CLIENT-RU
 returns it as =(:STATUS STATUS :MESSAGE MESSAGE)=, so a relaying front process can
 exit exactly as a foreground application would have. Any other end returns NIL.
 
+* Process handoff
+
+A process that hands its work to a detached replacement does it through a
+private ticket. =handoff-ticket-pathname= names one beneath a directory and
+=handoff-ticket-write= publishes the host's record, which carries =:state= and
+=:token=. The replacement claims the ticket with =handoff-ticket-claim=, a
+rename that fails once the launcher has cancelled, and keeps checking
+=handoff-ticket-owned-record= while it starts. The launcher cancels with
+=handoff-ticket-cancel=, a rename the replacement then sees. Every state lives in
+a sibling named after the ticket (=handoff-ticket-sibling=), so
+=handoff-ticket-delete= removes the whole family.
+
+=handoff-launch-supervised= starts the replacement behind a Bash supervisor that
+creates its process group, records the group identifier beside the ticket
+(=handoff-ticket-launcher-pid=), and only then lets the launcher run, so a failed
+handoff can always find what to stop. =handoff-ticket-replacement-pid= names the
+claimant. =daemon-endpoint-status= accepts a registry record only when a
+different process serves it with the expected token and answers an
+authenticated =:status= request, and =daemon-wait-until= polls such a check up to
+a deadline.
+
 * Failures
 
 Failures signal =DAEMON-ERROR= carrying a message, the failing

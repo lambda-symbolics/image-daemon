@@ -131,4 +131,46 @@
            #:relay-observer-count
            #:relay-attached-p
            #:relay-attachment-kind
-           #:*daemon-thread-stop-timeout-seconds*))
+           #:*daemon-thread-stop-timeout-seconds*
+           #:*eval-protocol-version*
+           #:*eval-nonce-octets*
+           #:*eval-proof-octets*
+           #:*eval-token-maximum-octets*
+           #:*eval-maximum-protocol-list-length*
+           #:*eval-minimum-frame-size*
+           #:*eval-stop-timeout-seconds*
+           #:*eval-make-thread-function*
+           #:*eval-frame-keywords*
+           #:eval-endpoint
+           #:eval-endpoint-create
+           #:eval-endpoint-start
+           #:eval-endpoint-stop
+           #:eval-endpoint-transport
+           #:eval-endpoint-unix-pathname
+           #:eval-endpoint-tcp-address
+           #:eval-endpoint-tcp-port
+           #:eval-endpoint-token-pathname
+           #:eval-endpoint-package
+           #:eval-endpoint-evaluation-timeout
+           #:eval-endpoint-authentication-timeout
+           #:eval-endpoint-maximum-frame-size
+           #:eval-endpoint-maximum-source-size
+           #:eval-endpoint-maximum-output-size
+           #:eval-endpoint-queue-capacity
+           #:eval-endpoint-maximum-clients
+           #:eval-endpoint-error-function
+           #:eval-endpoint-evaluator-thread
+           #:eval-endpoint-stopping-p
+           #:eval-endpoint-error
+           #:eval-endpoint-error-reason
+           #:eval-endpoint-error-threads
+           #:eval-output-stream
+           #:eval-output-stream-create
+           #:eval-output-stream-text
+           #:eval-output-stream-truncated-p
+           #:eval-print-bounded
+           #:eval-read-frame
+           #:eval-write-frame
+           #:eval-proof
+           #:eval-connect
+           #:eval-call))

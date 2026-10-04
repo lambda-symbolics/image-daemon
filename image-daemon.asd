@@ -26,9 +26,19 @@
                              (:file "handoff"))))
   :in-order-to ((asdf:test-op (asdf:test-op #:image-daemon/tests))))
 
+(asdf:defsystem #:image-daemon/eval
+  :description "Authenticated evaluation endpoints for trusted local programs."
+  :depends-on (#:image-daemon #:sb-posix #:sexp-config #:sexp-store #:ls-compat/posix
+               #:structlisp #:trivial-gray-streams)
+  :serial t
+  :components ((:module "src"
+                :serial t
+                :components ((:file "eval"))))
+  :in-order-to ((asdf:test-op (asdf:test-op #:image-daemon/tests))))
+
 (asdf:defsystem #:image-daemon/tests
   :description "Tests for image-daemon."
-  :depends-on (#:image-daemon/runtime)
+  :depends-on (#:image-daemon/runtime #:image-daemon/eval #:flexi-streams)
   :serial t
   :components ((:module "tests"
                 :serial t
@@ -36,7 +46,8 @@
                              (:file "thread-tests")
                              (:file "runtime-tests")
                              (:file "attachment-tests")
-                             (:file "handoff-tests"))))
+                             (:file "handoff-tests")
+                             (:file "eval-tests"))))
   :perform (asdf:test-op (operation component)
              (declare (ignore operation component))
              (uiop:symbol-call '#:image-daemon/tests '#:run-tests)))

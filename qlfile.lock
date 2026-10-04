@@ -18,10 +18,22 @@
  (:class qlot/source/ql:source-ql
   :initargs (:%version "2026-01-01")
   :version "ql-2026-01-01"))
+("trivial-gray-streams" .
+ (:class qlot/source/ql:source-ql
+  :initargs (:%version "2026-01-01")
+  :version "ql-2024-10-12"))
+("flexi-streams" .
+ (:class qlot/source/ql:source-ql
+  :initargs (:%version "2026-01-01")
+  :version "ql-2024-10-12"))
 ("sexp-store" .
  (:class qlot/source/git:source-git
-  :initargs (:remote-url "https://github.com/lambda-symbolics/sexp-store.git" :ref "778ce8021071bb8ba4066eff9eb822499b8a48ec")
-  :version "git-778ce8021071bb8ba4066eff9eb822499b8a48ec"))
+  :initargs (:remote-url "https://github.com/lambda-symbolics/sexp-store.git" :ref "4d38e6544d87412d99acef9f097272df41359eff")
+  :version "git-4d38e6544d87412d99acef9f097272df41359eff"))
+("sexp-config" .
+ (:class qlot/source/git:source-git
+  :initargs (:remote-url "https://github.com/lambda-symbolics/sexp-config.git" :ref "09e0b86650d08d98c7624ec525d346a41b98323c")
+  :version "git-09e0b86650d08d98c7624ec525d346a41b98323c"))
 ("ls-flock" .
  (:class qlot/source/git:source-git
   :initargs (:remote-url "https://github.com/lambda-symbolics/ls-flock.git" :ref "0e3e0ada0f5b693cb3f32f46aefbb8dbebcc20f2")
@@ -32,5 +44,5 @@
   :version "git-66bbfbe947b69f3105f71f5e4293637decc91746"))
 ("ls-compat" .
  (:class qlot/source/git:source-git
-  :initargs (:remote-url "https://github.com/lambda-symbolics/ls-compat.git" :ref "24fbc85ec31f3a8f8d2d165a2997e18a21427738")
-  :version "git-24fbc85ec31f3a8f8d2d165a2997e18a21427738"))
+  :initargs (:remote-url "https://github.com/lambda-symbolics/ls-compat.git" :ref "52c959f2bc00adc30f2970c2fd2226bd0c01730d")
+  :version "git-52c959f2bc00adc30f2970c2fd2226bd0c01730d"))

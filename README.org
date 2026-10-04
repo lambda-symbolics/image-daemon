@@ -14,6 +14,7 @@ relay ownership, bounded replay and attachment client loops.
 
 - ASDF system: =image-daemon=
 - Optional SBCL runtime system: =image-daemon/runtime=
+- Optional SBCL evaluation endpoint system: =image-daemon/eval=
 - Test system: =image-daemon/tests=
 - Package: =IMAGE-DAEMON=
 
@@ -103,12 +104,51 @@ different process serves it with the expected token and answers an
 authenticated =:status= request, and =daemon-wait-until= polls such a check up to
 a deadline.
 
+* Evaluation endpoints
+
+=image-daemon/eval= lets trusted local programs evaluate Common Lisp in the
+running image. =eval-endpoint-create= validates the settings: a private Unix
+socket or an IPv4 loopback TCP address, a token file, the package sources are
+read and evaluated in, and bounds on frames, sources, output, queued requests,
+clients and time. =eval-endpoint-start= listens and starts one accept thread
+and one serial evaluator; =eval-endpoint-stop= closes everything within a
+deadline and signals =:quiesce= naming any thread that stayed alive.
+
+Every frame is a four-octet big-endian length followed by that many UTF-8
+octets holding one S-expression. The length is checked before the payload is
+read, and the payload is parsed by a closed sexp-config grammar, so no frame,
+authenticated or not, interns a symbol or nests without bound. A connection
+starts with =(:challenge :version 1 :algorithm :hmac-sha-256 :nonce HEX)= and
+must answer =(:authenticate :proof HEX)=, the HMAC-SHA-256 of the nonce keyed by
+the token file's content. The endpoint reads the token only while checking a
+proof, refuses a token file that is not a private regular file, wipes every
+secret octet, and retains only the pathname. Authenticated clients then send
+=(:evaluate :source TEXT)= one at a time and receive an =:evaluation-result= with
+bounded values, captured output, and a =:condition= or =:timeout= status for
+failures, including debugger entry.
+
+A Unix endpoint refuses an active socket and any object it does not own; a
+stale socket is renamed aside and removed only while it is still the socket
+that was inspected. =eval-connect= and =eval-call= are a complete client, and
+=eval-proof= computes a proof for clients written elsewhere.
+
+#+begin_src lisp
+(let ((endpoint (image-daemon:eval-endpoint-create
+                 :transport ':unix
+                 :unix-pathname #p"/run/user/1000/app/eval.sock"
+                 :token-pathname #p"/home/me/.config/app/eval.token"
+                 :package "MY-APP")))
+  (image-daemon:eval-endpoint-start endpoint))
+#+end_src
+
 * Failures
 
 Failures signal =DAEMON-ERROR= carrying a message, the failing
 operation, and the session identifier when known. Hosts may substitute
 a subclass through =*DAEMON-ERROR-CLASS*= to join their own condition
-hierarchy.
+hierarchy. Evaluation endpoints signal =EVAL-ENDPOINT-ERROR=, a
+=DAEMON-ERROR= that adds a non-secret reason keyword and, for =:quiesce=, the
+names of the threads that did not stop.
 
 Thread stops use one deadline across graceful exit and forced termination. If
 unwind cleanup cannot finish, handle =DAEMON-ERROR= with operation =:STOP-THREAD=.

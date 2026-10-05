@@ -51,3 +51,18 @@
   :perform (asdf:test-op (operation component)
              (declare (ignore operation component))
              (uiop:symbol-call '#:image-daemon/tests '#:run-tests)))
+
+
+(asdf:defsystem #:image-daemon/messages
+  :description "Bounded correlated operations over authenticated daemon endpoints"
+  :depends-on (#:image-daemon/runtime)
+  :components ((:file "src/messages"))
+  :in-order-to ((asdf:test-op (asdf:test-op #:image-daemon/message-tests))))
+
+(asdf:defsystem #:image-daemon/message-tests
+  :description "Actual cross-process message transport and lifecycle tests"
+  :depends-on (#:image-daemon/messages)
+  :components ((:file "tests/message-tests"))
+  :perform (asdf:test-op (operation component)
+             (declare (ignore operation component))
+             (uiop:symbol-call '#:image-daemon/message-tests '#:run-tests)))

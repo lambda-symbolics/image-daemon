@@ -145,6 +145,88 @@ that was inspected. =eval-connect= and =eval-call= are a complete client, and
   (image-daemon:eval-endpoint-start endpoint))
 #+end_src
 
+* Existing-loop deadline callbacks
+
+=daemon-runtime-set-timer= installs paired callbacks on an existing runtime:
+
+#+begin_src lisp
+(image-daemon:daemon-runtime-set-timer
+ runtime
+ :next-deadline-function (lambda (runtime)
+                           (declare (ignore runtime))
+                           (host-next-universal-time-deadline))
+ :wake-function (lambda (runtime)
+                  (declare (ignore runtime))
+                  (host-materialize-due-work)))
+#+end_src
+
+The next-deadline callback returns a nonnegative universal-time integer or NIL.
+The wake callback runs on the existing accept-loop thread outside the runtime lock
+and must advance or clear a due deadline before returning. Listener readiness and
+deadlines share the same blocking wait, without polling or another execution thread.
+Keep callbacks bounded and enqueue ordinary host work rather than performing it
+on the accept thread. Timer errors reach the existing runtime error callback.
+
+Configure before startup or replace live. Clear both callbacks with
+=(daemon-runtime-set-timer runtime)=. After changing a later host deadline, call
+=daemon-runtime-notify=; its authenticated internal =:runtime-notify= operation
+wakes the listener without invoking the application's request callback. It returns
+T after acknowledgement, or NIL before start/after stopping. Hosts can also notify
+a remote runtime through ordinary =daemon-call= with =:runtime-notify=. Deliver
+observable events through the host's normal authenticated callback, update its
+state and notify if the next deadline changed.
+
+* Bounded message operations (optional)
+
+Load =image-daemon/messages=. Create an endpoint with
+=daemon-message-endpoint-create= and the usual =:directory=, =:identifier= and
+=:publish-p= settings, plus =:dispatcher=. Start/stop and discover it with the
+existing daemon runtime and private registry API. Defaults are 65,536 request and
+response characters, 32 concurrent clients, and a 2-second request timeout.
+=:character-limit=, =:client-limit= and =:request-timeout= replace those bounds.
+Admission is bounded before frame parsing, including stalled unauthenticated clients.
+
+The dispatcher receives =(envelope &key cancelled-p)= and returns one portable
+result. The envelope is =(:action KEYWORD :id STRING :sender STRING :receiver
+STRING :payload VALUE)=. IDs are stable host-selected strings of 1..256 characters.
+Payloads/results contain proper lists, strings, rational numbers, keywords, T and
+NIL. Envelopes are framed by the existing bounded readable daemon protocol, retain
+its capability authentication and correlate replies by ID.
+
+#+begin_src lisp
+(image-daemon:daemon-message-call
+ (cdr (first (image-daemon:daemon-registry-discover directory)))
+ :action ':send :id "m1" :sender "a" :receiver "b"
+ :payload '(:text "ready") :timeout 2)
+#+end_src
+
+=daemon-message-call= takes the tagged private discovery record, not a display
+record or a bare plist. Optional =:cancelled-p= cancels local waiting; semantic
+cancellation/acknowledgement is a separate dispatcher action. Runtime shutdown is
+observable through the dispatcher's cancellation predicate. Keep capability-bearing
+records private and out of logs or saved application payloads.
+
+To compose an existing service, route authenticated =:message= operations to
+=daemon-message-handle-request runtime request :stream stream :dispatcher function=,
+with optional =:character-limit= and =:request-timeout=. The existing service's
+pre-dispatch frame policy applies; specialize =daemon-runtime-read-request= when a
+smaller bound is required. =daemon-runtime-client-limit= is the corresponding
+optional concurrent-client protocol.
+
+The host owns authorization of sender/receiver identities, stable-ID retention,
+mailbox/wakeup semantics and durable acknowledgement. No job-pool or application
+package is required. Request timeout, cancellation, disconnect or lost replies can
+follow committed effects. Resolve an uncertain outcome through the SAME stable ID,
+rather than assuming rejection and generating another ID. Failures signal
+=daemon-message-error= (a =daemon-error=), with =daemon-message-error-reason= such
+as =:payload-limit=, a dispatcher-supplied rejection, =:cancelled= or =:uncertain=.
+
+Run optional actual subprocess discovery/transport and timer checks with:
+
+#+begin_src lisp
+(asdf:test-system :image-daemon/message-tests)
+#+end_src
+
 * Failures
 
 Failures signal =DAEMON-ERROR= carrying a message, the failing

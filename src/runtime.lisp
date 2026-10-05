@@ -27,11 +27,18 @@
                    :documentation "Active request threads.")
    (client-sockets :initform nil :accessor daemon-runtime-client-sockets
                    :documentation "Accepted sockets awaiting cleanup.")
+   (next-deadline-function :initform nil :accessor daemon-runtime--next-deadline-function
+                           :documentation "Optional callback returning the next universal-time deadline.")
+   (wake-function :initform nil :accessor daemon-runtime--wake-function
+                  :documentation "Optional deadline callback, called on the accept-loop thread.")
    (request-function :initarg :request-function :reader daemon-runtime-request-function
                      :documentation "Callback (runtime request &key socket stream) for authenticated requests.")
    (error-function :initarg :error-function :initform nil :reader daemon-runtime-error-function
                    :documentation "Optional callback for accept-loop failures."))
   (:documentation "One local service with explicitly owned transport resources."))
+
+(export '(daemon-runtime-read-request daemon-runtime-client-limit
+          daemon-runtime-set-timer daemon-runtime-notify))
 
 (defgeneric daemon-runtime-request-valid-p (runtime request)
   (:documentation "Return true when RUNTIME accepts REQUEST's protocol and capability."))
@@ -109,6 +116,20 @@ start until DAEMON-RUNTIME-START."
       (unless completed-p
         (ignore-errors (sb-bsd-sockets:socket-close listener))))))
 
+(defgeneric daemon-runtime-read-request (runtime stream)
+  (:documentation "Read one request from STREAM using RUNTIME's framing/deadline policy."))
+
+(defmethod daemon-runtime-read-request ((runtime daemon-runtime) stream)
+  (declare (ignore runtime))
+  (daemon-read-packet stream))
+
+(defgeneric daemon-runtime-client-limit (runtime)
+  (:documentation "Return RUNTIME's concurrent client bound, or NIL for unbounded admission."))
+
+(defmethod daemon-runtime-client-limit ((runtime daemon-runtime))
+  (declare (ignore runtime))
+  nil)
+
 (defun daemon-runtime--handle-client (runtime socket)
   "Read one authenticated request, then close and unregister SOCKET on every exit."
   (let ((stream nil)
@@ -118,12 +139,14 @@ start until DAEMON-RUNTIME-START."
              (progn
                (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
                  (setf stream (daemon-socket-stream socket)))
-               (let ((request (daemon-read-packet stream)))
+               (let ((request (daemon-runtime-read-request runtime stream)))
                  (unless (daemon-runtime-request-valid-p runtime request)
                    (daemon-fail :message "The localgroup request was rejected."
                                 :operation ':request))
-                 (funcall (daemon-runtime-request-function runtime)
-                          runtime request :socket socket :stream stream)))
+                 (if (eq (getf (rest request) :operation) ':runtime-notify)
+                     (daemon-write-packet stream '(:runtime-notified))
+                     (funcall (daemon-runtime-request-function runtime)
+                              runtime request :socket socket :stream stream))))
            (error (condition)
              (when stream
                (ignore-errors
@@ -139,6 +162,59 @@ start until DAEMON-RUNTIME-START."
               (delete socket (daemon-runtime-client-sockets runtime))))))
 )
 
+(defun daemon-runtime-notify (runtime)
+  "Wake RUNTIME after changing a host deadline, using its authenticated listener.
+Return T after acknowledgement, or NIL when not started/stopping. No host request
+callback is invoked. The accept loop then recomputes its next deadline."
+  (let ((server (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+                  (and (not (daemon-runtime-stopping-p runtime))
+                       (daemon-runtime-server-thread runtime)))))
+    (unless server (return-from daemon-runtime-notify nil))
+    ;; The accept-loop callback will recompute deadlines on its own return.
+    (when (eq server (bordeaux-threads:current-thread))
+      (return-from daemon-runtime-notify t))
+    (equal (daemon-call (daemon-runtime-port runtime) (daemon-runtime-token runtime) ':runtime-notify)
+           '(:runtime-notified))))
+
+(defun daemon-runtime-set-timer (runtime &key next-deadline-function wake-function)
+  "Install or clear paired timer callbacks without creating another runner thread.
+NEXT-DEADLINE-FUNCTION receives RUNTIME and returns a universal-time integer or
+NIL. WAKE-FUNCTION receives RUNTIME on the existing accept-loop thread and must
+advance/clear a due deadline before returning. Both run outside the runtime lock.
+Call DAEMON-RUNTIME-NOTIFY after later host deadline changes. Configure before
+start or update live; notification wakes a blocked listener after publication."
+  (unless (or (and (null next-deadline-function) (null wake-function))
+              (and (functionp next-deadline-function) (functionp wake-function)))
+    (daemon-fail :message "Timer callbacks must be a pair of functions or NIL."
+                 :operation ':timer))
+  (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+    (setf (daemon-runtime--next-deadline-function runtime) next-deadline-function
+          (daemon-runtime--wake-function runtime) wake-function))
+  (daemon-runtime-notify runtime)
+  runtime)
+
+(defun daemon-runtime--wait-for-client (runtime)
+  "Wait for listener readiness or service one due deadline, without polling."
+  (multiple-value-bind (next-function wake-function)
+      (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+        (values (daemon-runtime--next-deadline-function runtime)
+                (daemon-runtime--wake-function runtime)))
+    (let ((deadline (and next-function (funcall next-function runtime))))
+      (unless (typep deadline '(or null (integer 0 *)))
+        (daemon-fail :message "A timer deadline must be a universal-time integer or NIL."
+                     :operation ':timer))
+      (if (and deadline (<= deadline (get-universal-time)))
+          (progn
+            (funcall wake-function runtime)
+            (let ((next (funcall next-function runtime)))
+              (unless (or (null next) (and (integerp next) (> next (get-universal-time))))
+                (daemon-fail :message "A timer callback did not advance its due deadline."
+                             :operation ':timer)))
+            nil)
+          (sb-sys:wait-until-fd-usable
+           (sb-bsd-sockets:socket-file-descriptor (daemon-runtime-listener runtime))
+           ':input (and deadline (max 0 (- deadline (get-universal-time)))) nil)))))
+
 (defun daemon-runtime--serve (runtime)
   "Accept requests until RUNTIME stops; never register a client after shutdown."
   (loop
@@ -146,20 +222,23 @@ start until DAEMON-RUNTIME-START."
             (daemon-runtime-stopping-p runtime))
       (return))
     (handler-case
-        (let ((socket (sb-bsd-sockets:socket-accept (daemon-runtime-listener runtime))))
-          (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
-            (if (daemon-runtime-stopping-p runtime)
-                (ignore-errors (sb-bsd-sockets:socket-close socket))
-                (handler-case
-                    (let ((thread
-                            (bordeaux-threads:make-thread
-                             (lambda () (daemon-runtime--handle-client runtime socket))
-                             :name "Image daemon request")))
-                      (push socket (daemon-runtime-client-sockets runtime))
-                      (push thread (daemon-runtime-client-threads runtime)))
-                  (error (condition)
-                    (ignore-errors (sb-bsd-sockets:socket-close socket))
-                    (error condition))))))
+        (when (daemon-runtime--wait-for-client runtime)
+          (let ((socket (sb-bsd-sockets:socket-accept (daemon-runtime-listener runtime))))
+            (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+              (if (or (daemon-runtime-stopping-p runtime)
+                      (let ((limit (daemon-runtime-client-limit runtime)))
+                        (and limit (>= (length (daemon-runtime-client-sockets runtime)) limit))))
+                  (ignore-errors (sb-bsd-sockets:socket-close socket))
+                  (handler-case
+                      (let ((thread
+                              (bordeaux-threads:make-thread
+                               (lambda () (daemon-runtime--handle-client runtime socket))
+                               :name "Image daemon request")))
+                        (push socket (daemon-runtime-client-sockets runtime))
+                        (push thread (daemon-runtime-client-threads runtime)))
+                    (error (condition)
+                      (ignore-errors (sb-bsd-sockets:socket-close socket))
+                      (error condition)))))))
       (error (condition)
         (when (and (not (daemon-runtime-stopping-p runtime))
                    (daemon-runtime-error-function runtime))

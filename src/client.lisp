@@ -39,11 +39,12 @@
        (typep (getf (rest packet) :message) '(or null string))
        t))
 
-(defun daemon-attach-receive (stream output-stream stop-function &key exit-function)
+(defun daemon-attach-receive (stream output-stream stop-function &key exit-function packet-function)
   "Copy remote output to OUTPUT-STREAM and always call STOP-FUNCTION on exit.
 
 A well-formed exit packet ends the attachment after EXIT-FUNCTION, when
-supplied, receives its (:STATUS STATUS :MESSAGE MESSAGE) plist."
+supplied, receives its (:STATUS STATUS :MESSAGE MESSAGE) plist.
+PACKET-FUNCTION receives unrecognized packets; a true return ends the attachment."
   (unwind-protect
        (handler-case
            (loop for packet = (daemon-read-packet stream) while packet
@@ -59,20 +60,25 @@ supplied, receives its (:STATUS STATUS :MESSAGE MESSAGE) plist."
                                     (list :status (getf (rest packet) :status)
                                           :message (getf (rest packet) :message))))
                          (return)))
-                      ((:detached :revoked) (return))))
+                       ((:detached :revoked) (return))
+                       (otherwise
+                        (when (and packet-function (funcall packet-function packet))
+                          (return)))))
          (error () nil))
     (funcall stop-function))
   nil)
 
 (defun daemon-attach-client-run (stream &key socket mode input-ready-function read-event-function
                                            resize-function (output-stream *standard-output*)
-                                           close-function)
+                                            close-function packet-function)
   "Run a local attachment using explicit input, resize and transport callbacks.
 
 RESIZE-FUNCTION returns NIL or the plist for a resize packet. Observer exit keys
 are local only. Supply SOCKET or a CLOSE-FUNCTION that unblocks concurrent I/O.
 Teardown uses transport closure as detach, without writing another packet, and
 shuts down socket I/O before abortive stream close.
+PACKET-FUNCTION runs in the receiver thread for unrecognized packets; return
+true to end the attachment after handling a host-specific control packet.
 
 Return the (:STATUS STATUS :MESSAGE MESSAGE) plist when the application ended
 the attachment through RELAY-FINISH, and NIL for any other end."
@@ -92,7 +98,8 @@ the attachment through RELAY-FINISH, and NIL for any other end."
                    (bordeaux-threads:make-thread
                     (lambda ()
                       (daemon-attach-receive stream output-stream #'stop
-                                             :exit-function #'record-exit))
+                                              :exit-function #'record-exit
+                                              :packet-function packet-function))
                     :name "Image daemon attach input"))
              (loop until (stopped-p)
                    do (let ((resize (and resize-function (funcall resize-function))))

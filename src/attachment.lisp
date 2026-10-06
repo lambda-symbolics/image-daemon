@@ -177,6 +177,9 @@ deadline."
            (history :initform (structlisp:make-deque :weight-function #'length) :reader
             relay-history :type structlisp:deque :documentation
             "Bounded terminal output chunks with maintained character size.")
+           (history-position :initform 0 :accessor relay-history-position
+                             :type (integer 0)
+                             :documentation "Total output characters retained, including evicted history.")
            (wake-function :initform nil :accessor relay-wake-function :type
             (option function) :documentation
             "The callback waking the responsive input controller."))
@@ -203,6 +206,7 @@ deadline."
   "Append TEXT to TERMINAL's exactly bounded attachment replay history while locked."
   (let ((history (relay-history transport)))
     (structlisp:deque-push-back history text)
+    (incf (relay-history-position transport) (length text))
     (loop while (> (structlisp:deque-total-weight history)
                    *relay-history-character-limit*)
           for excess = (- (structlisp:deque-total-weight history)
@@ -365,8 +369,10 @@ deadline."
                   (transport-columns transport))))
         (unless
             (attachment-send attachment
-             (list :attached :mode mode :session-id session-id :history history :rows
-                   next-rows :columns next-columns))
+             (list :attached :mode mode :session-id session-id :history history
+                   :history-start (- (relay-history-position transport) (length history))
+                   :history-position (relay-history-position transport)
+                   :rows next-rows :columns next-columns))
           (return-from relay-attach (values nil nil)))
         (ecase mode
           (:read-only (pushnew attachment (relay-observers transport) :test #'eq))

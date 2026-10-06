@@ -76,6 +76,10 @@ have independent character limits. On overflow, shut down socket I/O before
 abortive stream close and join the writer with a bounded wait. The client-side
 =DAEMON-ATTACH-CLIENT-RUN= accepts input-readiness, event-read and resize callbacks;
 supply its socket or a shutdown callback that unblocks concurrent reads.
+Pass =:packet-function= to handle host-specific control packets in the receiver
+thread. Return true from that callback to end the attachment.
+Attachment handshakes include =:history-start= and =:history-position= character
+positions for replaying output produced during a reconnect.
 
 When the hosted application is about to exit with a status its launcher acts on,
 call =RELAY-FINISH= with that status and an optional message. Every client

@@ -32,6 +32,8 @@
             :session-id "ORDER")
            "localgroup terminal accepts a read-only attachment")
           (transport-write transport text)
+          (check (= (relay-history-position transport) (length text))
+                 "the replay position includes characters evicted from bounded history")
           (let* ((frames
                   (bordeaux-threads:with-lock-held ((attachment-lock attachment))
                     (coerce (structlisp:deque->vector (attachment-queue attachment))
@@ -45,11 +47,26 @@
             (check
              (and (= (length frames) 4) (eq (first handshake) ':attached)
                   (string= (getf (rest handshake) :session-id) "ORDER")
+                  (zerop (getf (rest handshake) :history-start))
+                  (zerop (getf (rest handshake) :history-position))
                   (every (lambda (packet) (eq (first packet) ':output)) (rest packets))
                   (string= output text)
                   (string= (relay-history-text transport)
                            (subseq text (- (length text) 5))))
              "the handshake precedes bounded lossless output and exact replay"))
+          (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+            (structlisp:deque-clear (attachment-queue attachment)))
+          (relay-detach transport attachment)
+          (relay-attach transport attachment :rows 24 :columns 80 :styled-p nil
+                        :session-id "ORDER")
+          (let* ((frame (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+                          (structlisp:deque-pop-front (attachment-queue attachment))))
+                 (packet (daemon-read-packet (make-string-input-stream frame))))
+            (check (and (= (getf (rest packet) :history-start) (- (length text) 5))
+                        (= (getf (rest packet) :history-position) (length text))
+                        (string= (getf (rest packet) :history)
+                                 (subseq text (- (length text) 5))))
+                   "a new attachment receives absolute cursors after history eviction"))
           (let ((*attachment-queue-character-limit* 1))
             (check
              (and (not (attachment-send attachment '(:oversized)))
@@ -408,3 +425,28 @@
       (when attachment (ignore-errors (attachment-close attachment)))
       (when client-socket (ignore-errors (sb-bsd-sockets:socket-close client-socket)))
       (ignore-errors (sb-bsd-sockets:socket-close listener)))))
+
+
+(defun test-attachment-host-packets ()
+  "Test host packet delivery and receiver-driven attachment termination."
+  (dolist (stop-p '(nil t))
+    (let* ((wire (with-output-to-string (stream)
+                   (daemon-write-packet stream '(:output "before"))
+                   (daemon-write-packet stream '(:host-end :id "G1"))
+                   (daemon-write-packet stream '(:output "after"))))
+           (stream (make-string-input-stream wire))
+           (output (make-string-output-stream))
+           (received nil))
+      (check
+       (null (daemon-attach-client-run
+              stream :mode ':control
+              :input-ready-function (lambda () nil)
+              :read-event-function (lambda () nil)
+              :close-function (lambda () (close stream))
+              :output-stream output
+              :packet-function (lambda (packet) (setf received packet) stop-p)))
+       "a host control packet does not invent an application exit")
+      (check (equal received '(:host-end :id "G1")) "the host receives the complete packet")
+      (check (string= (get-output-stream-string output)
+                      (if stop-p "before" "beforeafter"))
+             "the host decides whether reception continues"))))

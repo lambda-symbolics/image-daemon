@@ -108,6 +108,7 @@
            #:relay-input-condition-variable
            #:relay-input-events
            #:relay-history
+           #:relay-history-position
            #:relay-wake-function
            #:relay-set-wake-function
            #:relay-history-text

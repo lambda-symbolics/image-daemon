@@ -145,6 +145,7 @@
   (test-thread-stop-deadline)
   (test-relay-stop-recovery)
   (test-registry)
+  (test-registry-locking)
   (test-replay)
   (test-localgroup-attachment-close-safety)
   (test-attachment-client-blocked-detach)

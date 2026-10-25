@@ -79,6 +79,42 @@
            (check (null (daemon-registry-read path)) "dead endpoint removed"))
       (uiop:delete-directory-tree root :validate t :if-does-not-exist ':ignore))))
 
+(defun test-registry-locking ()
+  "Ensure registry readers and writers wait for the per-directory lock."
+  (let* ((root (merge-pathnames (format nil "daemon-registry-lock-~A/"
+                                        (daemon-random-nonce))
+                                (uiop:temporary-directory)))
+         (path (daemon-registry-pathname root "session"))
+         (record (daemon-registry-record :identifier "session" :token "capability"
+                                         :port 12345 :created-at 1)))
+    (labels ((check-blocked (operation)
+               (let ((complete (sb-thread:make-semaphore :count 0))
+                     (thread nil))
+                 (unwind-protect
+                      (progn
+                        (daemon-registry-call-with-lock
+                         path
+                         (lambda ()
+                           (setf thread
+                                 (sb-thread:make-thread
+                                  (lambda ()
+                                    (funcall operation)
+                                    (sb-thread:signal-semaphore complete))))
+                           (check (not (sb-thread:wait-on-semaphore
+                                        complete :timeout 0.05))
+                                  "registry operation waits for its lock")))
+                        (check (sb-thread:wait-on-semaphore complete :timeout 2)
+                               "registry operation completes after lock release"))
+                   (when thread
+                      (sb-thread:join-thread thread :timeout 2 :default nil))))))
+      (unwind-protect
+           (progn
+             (check-blocked (lambda () (daemon-registry-read path)))
+             (check-blocked (lambda () (daemon-registry-publish path record)))
+             (check (equal record (daemon-registry-read path))
+                    "writer publishes after lock release"))
+        (uiop:delete-directory-tree root :validate t :if-does-not-exist ':ignore)))))
+
 (defun test-runtime-lifecycle ()
   "Exercise authentication, successor ownership and blocked request shutdown."
   (let* ((root

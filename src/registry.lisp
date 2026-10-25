@@ -37,20 +37,27 @@
            (typep (getf (rest record) :created-at) '(integer 0)))
     (error () nil)))
 
-(defun daemon-registry-read (pathname)
-  "Return PATHNAME's valid complete endpoint record, or NIL."
-  (handler-case
-      (multiple-value-bind (record complete-p)
-          (sexp-store:snapshot-read pathname)
-        (and complete-p (daemon-registry-record-p record) record))
-    (error () nil)))
-
 (defun daemon-registry-call-with-lock (pathname function)
   "Call FUNCTION while serializing registry updates beside PATHNAME."
   (let ((lock-pathname (make-pathname :name "registry" :type "lock"
                                     :defaults pathname)))
     (ensure-directories-exist lock-pathname)
     (ls-flock:call-with-file-lock lock-pathname function)))
+
+(defun daemon-registry--read (pathname)
+  "Return PATHNAME's valid complete endpoint record without acquiring its lock."
+  (handler-case
+      (multiple-value-bind (record complete-p)
+          (sexp-store:snapshot-read pathname)
+        (and complete-p (daemon-registry-record-p record) record))
+    (error () nil)))
+
+(defun daemon-registry-read (pathname)
+  "Return PATHNAME's valid complete endpoint record, or NIL."
+  (daemon-registry-call-with-lock
+   pathname
+   (lambda ()
+     (daemon-registry--read pathname))))
 
 (defun daemon-process-state (pid)
   "Return :ALIVE, :DEAD or :UNKNOWN without mistaking denied access for death."
@@ -68,7 +75,7 @@ its own endpoint during process handoff. Unknown process state retains ownership
   (daemon-registry-call-with-lock
    pathname
    (lambda ()
-     (let ((current (daemon-registry-read pathname)))
+     (let ((current (daemon-registry--read pathname)))
        (when (and current (not (equal current record))
                   (not (eq (daemon-process-state (getf (rest current) :pid)) ':dead))
                   (not (string= (getf (rest current) :token)
@@ -87,7 +94,7 @@ its own endpoint during process handoff. Unknown process state retains ownership
       (daemon-registry-call-with-lock
        pathname
        (lambda ()
-         (when (equal record (daemon-registry-read pathname))
+         (when (equal record (daemon-registry--read pathname))
            (delete-file pathname)
            t)))
     (error () nil)))

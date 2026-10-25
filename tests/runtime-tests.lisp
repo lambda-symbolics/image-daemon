@@ -36,7 +36,15 @@
               (error 'file-error :pathname pathname))
             (lambda ()
               (check (null (daemon-registry-read path))
-                     "unavailable registry lock yields no discovery record")))
+                     "unavailable registry lock yields no discovery record")
+              (check (null (daemon-registry-delete-matching path record))
+                     "best-effort deletion tolerates an unavailable lock")
+              (check (handler-case
+                         (progn
+                           (daemon-registry-delete-matching path record :errorp t)
+                           nil)
+                       (file-error () t))
+                     "transactional deletion propagates lock errors")))
            (dolist (bad (list nil '(:localgroup-endpoint :version "wrong")
                               '(:localgroup-endpoint :version)
                               (cons :localgroup-endpoint 7)))

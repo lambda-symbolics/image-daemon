@@ -90,16 +90,22 @@ its own endpoint during process handoff. Unknown process state retains ownership
      (setf (ls-compat.posix:file-mode pathname) #o600)))
   nil)
 
-(defun daemon-registry-delete-matching (pathname record)
-  "Delete PATHNAME only while its complete record equals RECORD."
-  (handler-case
-      (daemon-registry-call-with-lock
-       pathname
-       (lambda ()
-         (when (equal record (daemon-registry--read pathname))
-           (delete-file pathname)
-           t)))
-    (error () nil)))
+(defun daemon-registry-delete-matching (pathname record &key (errorp nil))
+  "Delete PATHNAME only while its complete record equals RECORD.
+
+Return true after deletion, NIL otherwise. Signal deletion or lock errors when
+ERRORP is true, so transactional callers can roll back; otherwise return NIL."
+  (flet ((delete-matching ()
+           (daemon-registry-call-with-lock
+            pathname
+            (lambda ()
+              (when (equal record (daemon-registry--read pathname))
+                (delete-file pathname)
+                t)))))
+    (if errorp
+        (delete-matching)
+        (handler-case (delete-matching)
+          (error () nil)))))
 
 (defun daemon-registry-discover (directory)
   "Return (PATHNAME . RECORD) entries ordered by newest publication first."

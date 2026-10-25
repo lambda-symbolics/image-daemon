@@ -29,6 +29,14 @@
     (unwind-protect
          (progn
            (check (null (daemon-registry-read path)) "missing discovery record")
+           (call-with-replacement
+            'daemon-registry-call-with-lock
+            (lambda (pathname function)
+              (declare (ignore function))
+              (error 'file-error :pathname pathname))
+            (lambda ()
+              (check (null (daemon-registry-read path))
+                     "unavailable registry lock yields no discovery record")))
            (dolist (bad (list nil '(:localgroup-endpoint :version "wrong")
                               '(:localgroup-endpoint :version)
                               (cons :localgroup-endpoint 7)))

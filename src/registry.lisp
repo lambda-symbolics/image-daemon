@@ -53,11 +53,13 @@
     (error () nil)))
 
 (defun daemon-registry-read (pathname)
-  "Return PATHNAME's valid complete endpoint record, or NIL."
-  (daemon-registry-call-with-lock
-   pathname
-   (lambda ()
-     (daemon-registry--read pathname))))
+  "Return PATHNAME's valid complete endpoint record, or NIL when unavailable."
+  (handler-case
+      (daemon-registry-call-with-lock
+       pathname
+       (lambda ()
+         (daemon-registry--read pathname)))
+    (error () nil)))
 
 (defun daemon-process-state (pid)
   "Return :ALIVE, :DEAD or :UNKNOWN without mistaking denied access for death."

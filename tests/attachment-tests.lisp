@@ -411,11 +411,18 @@
                                                     :output-stream output)))
                   :name "Relay finish client"))
            (transport-write transport "goodbye")
-           (relay-finish transport :status 76 :message "Update to 9.9.9.")
+           (check (handler-case
+                      (progn (relay-finish transport :status 70 :details '(:capsule :absent))
+                             nil)
+                    (error () t))
+                  "details are limited to keywords naming strings or integers")
+           (relay-finish transport :status 70 :message "Recovering."
+                                   :details '(:capsule "/state/crashes/1.sexp"))
            (check (wait-until (lambda () (not (sb-thread:thread-alive-p client))) 5)
                   "the client returns once the application exit arrives")
-           (check (equal result '(:status 76 :message "Update to 9.9.9."))
-                  "the client returns the application's exit status and message")
+           (check (equal result '(:status 70 :message "Recovering."
+                                  :details (:capsule "/state/crashes/1.sexp")))
+                  "the client returns the application's exit status, message, and details")
            (check (search "goodbye" (get-output-stream-string output))
                   "output queued before the exit is delivered first")
            (check (not (relay-attached-p transport))

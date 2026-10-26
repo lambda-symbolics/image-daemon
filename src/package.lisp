@@ -129,6 +129,7 @@
            #:relay-detach
            #:relay-release-control
            #:relay-finish
+           #:daemon-exit-details-p
            #:relay-observer-count
            #:relay-attached-p
            #:relay-attachment-kind

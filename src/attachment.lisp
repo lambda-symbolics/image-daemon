@@ -426,15 +426,20 @@ deadline."
       (attachment-close controller))
     (not (null direct))))
 
-(defun relay-finish (transport &key status message)
+(defun relay-finish (transport &key status message details)
   "Tell every attachment its application exits with STATUS, then release them.
 
 Each controlling or observing client receives (:EXIT :STATUS STATUS :MESSAGE
 MESSAGE) after any queued output, which DAEMON-ATTACH-CLIENT-RUN returns, so a
-relaying launcher can exit as the detached application would have. A direct
-terminal is left to the application."
+relaying launcher can exit as the detached application would have. DETAILS,
+when present, is an application-defined plist of keywords to strings or
+integers that the exit also carries, such as where the application left its
+crash context for the relaying launcher. A direct terminal is left to the
+application."
   (check-type status (integer 0 255))
   (check-type message (or null string))
+  (assert (daemon-exit-details-p details) (details)
+          "Exit details ~S are not a plist of keywords to strings or integers." details)
   (let ((attachments nil))
     (bordeaux-threads:with-lock-held ((relay-lock transport))
       (setf attachments (remove-duplicates
@@ -449,7 +454,8 @@ terminal is left to the application."
       (structlisp:deque-clear (relay-input-events transport))
       (sb-thread:condition-broadcast (relay-input-condition-variable transport)))
     (dolist (attachment attachments)
-      (attachment-finish attachment (list :exit :status status :message message))))
+      (attachment-finish attachment (list* :exit :status status :message message
+                                           (when details (list :details details))))))
   transport)
 
 (defun relay-observer-count (transport)

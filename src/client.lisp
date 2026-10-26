@@ -31,19 +31,29 @@
                       (transport-resize relay :rows rows :columns columns :styled-p styled-p))))))))
   nil)
 
+(defun daemon-exit-details-p (details)
+  "Return true when DETAILS is NIL or a plist of keywords to strings or integers."
+  (and (proper-list-p details)
+       (evenp (length details))
+       (loop for (key value) on details by #'cddr
+             always (and (keywordp key) (typep value '(or string integer))))
+       t))
+
 (defun daemon-attach--exit-p (packet)
   "Return true when PACKET is a well-formed application exit packet."
   (and (proper-list-p packet)
        (eq (first packet) ':exit)
        (typep (getf (rest packet) :status) '(integer 0 255))
        (typep (getf (rest packet) :message) '(or null string))
+       (daemon-exit-details-p (getf (rest packet) :details))
        t))
 
 (defun daemon-attach-receive (stream output-stream stop-function &key exit-function packet-function)
   "Copy remote output to OUTPUT-STREAM and always call STOP-FUNCTION on exit.
 
 A well-formed exit packet ends the attachment after EXIT-FUNCTION, when
-supplied, receives its (:STATUS STATUS :MESSAGE MESSAGE) plist.
+supplied, receives its (:STATUS STATUS :MESSAGE MESSAGE) plist, followed by
+:DETAILS DETAILS when the exit carries details.
 PACKET-FUNCTION receives unrecognized packets; a true return ends the attachment."
   (unwind-protect
        (handler-case
@@ -57,8 +67,10 @@ PACKET-FUNCTION receives unrecognized packets; a true return ends the attachment
                        (when (daemon-attach--exit-p packet)
                          (when exit-function
                            (funcall exit-function
-                                    (list :status (getf (rest packet) :status)
-                                          :message (getf (rest packet) :message))))
+                                    (list* :status (getf (rest packet) :status)
+                                           :message (getf (rest packet) :message)
+                                           (let ((details (getf (rest packet) :details)))
+                                             (when details (list :details details))))))
                          (return)))
                        ((:detached :revoked) (return))
                        (otherwise

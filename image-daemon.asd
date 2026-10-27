@@ -4,7 +4,7 @@
   :license     "COLL-Attribution"
   :version     "0.1.0"
   :serial      t
-  :depends-on  (#:idsmall #:ironclad #:sb-bsd-sockets)
+  :depends-on  (#:idsmall #:ironclad #:sb-bsd-sockets #:serapeum)
   :components  ((:module     "src"
                  :serial     t
                  :components ((:file "package") (:file "protocol"))))

@@ -49,6 +49,8 @@ their own condition hierarchy.")
              (write-string (daemon-error-message condition) stream)))
   (:documentation "A structured failure in the daemon control protocol."))
 
+(-> daemon-fail (&key (:message string) (:operation keyword) (:session-id (or null string)) (:cause t))
+    nil)
 (defun daemon-fail (&key message operation session-id cause)
   "Signal a structured daemon protocol failure."
   (error *daemon-error-class*
@@ -60,6 +62,7 @@ their own condition hierarchy.")
 
 ;;;; -- Identity --
 
+(-> proper-list-p (t) boolean)
 (defun proper-list-p (value)
   "Return true when VALUE is a proper list."
   (and (listp value)
@@ -68,16 +71,19 @@ their own condition hierarchy.")
          (type-error ()
            nil))))
 
+(-> daemon-random-token () string)
 (defun daemon-random-token ()
   "Return a fresh unguessable capability token."
   (string-upcase
    (ironclad:byte-array-to-hex-string (ironclad:random-data 32))))
 
+(-> daemon-random-nonce () string)
 (defun daemon-random-nonce ()
   "Return a fresh hexadecimal nonce for private pathnames."
   (string-upcase
    (subseq (ironclad:byte-array-to-hex-string (ironclad:random-data 8)) 0 12)))
 
+(-> legacy-session-identifier-p (t) boolean)
 (defun legacy-session-identifier-p (value)
   "Return true when VALUE is one former twelve-character hexadecimal session ID."
   (not
@@ -86,6 +92,7 @@ their own condition hierarchy.")
          (= (length value) 12)
          (every (lambda (character) (digit-char-p character 16)) value)))))
 
+(-> session-identifier-normalize (t) string)
 (defun session-identifier-normalize (value)
   "Return VALUE's canonical daemon session identifier.
 
@@ -103,6 +110,7 @@ detached handoff."
            :operation  ':arguments
            :session-id (and (stringp value) value))))))
 
+(-> session-identifier-display (t) t)
 (defun session-identifier-display (identifier)
   "Return IDENTIFIER in readable canonical form, retaining legacy IDs plainly."
   (handler-case
@@ -112,6 +120,7 @@ detached handoff."
           (string-downcase identifier)
           identifier))))
 
+(-> session-identifier-timestamp (t) (or null integer))
 (defun session-identifier-timestamp (identifier)
   "Return the timestamp encoded by canonical IDENTIFIER, or NIL for legacy IDs."
   (handler-case
@@ -121,6 +130,7 @@ detached handoff."
 
 ;;;; -- Packet Framing --
 
+(-> packet-payload (t) string)
 (defun packet-payload (packet)
   "Return PACKET as readable text without reader evaluation syntax."
   (with-standard-io-syntax
@@ -130,6 +140,7 @@ detached handoff."
       (with-output-to-string (stream)
         (write packet :stream stream)))))
 
+(-> daemon-packet-string (t) string)
 (defun daemon-packet-string (packet)
   "Return PACKET as one bounded decimal-length-prefixed wire frame."
   (let ((payload (packet-payload packet)))
@@ -139,12 +150,14 @@ detached handoff."
        :operation ':write-packet))
     (format nil "~D~%~A" (length payload) payload)))
 
+(-> daemon-write-packet (stream t) null)
 (defun daemon-write-packet (stream packet)
   "Write and flush one bounded daemon PACKET frame to STREAM."
   (write-string (daemon-packet-string packet) stream)
   (finish-output stream)
   nil)
 
+(-> read-frame-header (stream) (or null string))
 (defun read-frame-header (stream)
   "Read one bounded decimal frame header, returning NIL only at clean end of file."
   (let ((characters (make-array 16
@@ -169,6 +182,7 @@ detached handoff."
                (t
                 (vector-push-extend character characters))))))
 
+(-> read-frame-length (stream) (or null (integer 1)))
 (defun read-frame-length (stream)
   "Read and validate one packet character count from STREAM."
   (let ((header (read-frame-header stream)))
@@ -186,6 +200,7 @@ detached handoff."
          :operation ':read-packet))
       length)))
 
+(-> read-frame-payload (stream (integer 0)) string)
 (defun read-frame-payload (stream length)
   "Read exactly LENGTH decoded packet characters from STREAM."
   (let ((payload (make-string length)))
@@ -198,6 +213,7 @@ detached handoff."
              (setf (char payload index) character))
     payload))
 
+(-> daemon-read-packet (stream) list)
 (defun daemon-read-packet (stream)
   "Read one safe, proper-list daemon packet frame from STREAM."
   (let ((length (read-frame-length stream)))
@@ -228,6 +244,7 @@ detached handoff."
            :operation ':read-packet
            :cause     condition))))))
 
+(-> daemon-read-response (stream keyword) list)
 (defun daemon-read-response (stream operation)
   "Read one required response within the daemon transport deadline."
   (handler-case
@@ -245,6 +262,7 @@ detached handoff."
 
 ;;;; -- Loopback Transport --
 
+(-> daemon-socket-stream (sb-bsd-sockets:socket) stream)
 (defun daemon-socket-stream (socket)
   "Return a buffered UTF-8 character stream for SOCKET."
   (sb-bsd-sockets:socket-make-stream
@@ -255,6 +273,7 @@ detached handoff."
    :external-format ':utf-8
    :buffering       ':full))
 
+(-> daemon-connect (t) (values sb-bsd-sockets:socket stream))
 (defun daemon-connect (port)
   "Connect to the loopback daemon endpoint at PORT."
   (let ((socket (make-instance 'sb-bsd-sockets:inet-socket
@@ -280,6 +299,7 @@ detached handoff."
          :operation ':connect
          :cause     condition)))))
 
+(-> daemon-call (t t keyword &key (:arguments t)) list)
 (defun daemon-call (port token operation &key arguments)
   "Perform one authenticated daemon OPERATION with ARGUMENTS and return its response.
 

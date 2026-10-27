@@ -1,5 +1,7 @@
 
 (defpackage #:image-daemon
+  (:documentation "Authenticated local endpoints, persistent services, terminal relays and
+evaluation endpoints for Lisp image daemons.")
   (:use #:cl)
   (:export #:relay-create
            #:*handoff-supervisor-script*

@@ -1,10 +1,12 @@
 (defpackage #:image-daemon/tests
+  (:documentation "Tests for image-daemon's protocol, runtime, relays, handoff and evaluation.")
   (:use #:cl #:image-daemon)
   (:export #:run-tests))
 
 (in-package #:image-daemon/tests)
 
-(defvar *assertions* 0)
+(defvar *assertions* 0
+  "The number of assertions checked in the current run.")
 
 (defun check (value control &rest arguments)
   "Count one assertion and fail with CONTROL unless VALUE is true."

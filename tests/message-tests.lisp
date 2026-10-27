@@ -1,10 +1,12 @@
 (defpackage #:image-daemon/message-tests
+  (:documentation "Cross-process tests for image-daemon's message transport.")
   (:use #:cl)
   (:export #:run-tests #:child-serve))
 
 (in-package #:image-daemon/message-tests)
 
-(defvar *checks* 0)
+(defvar *checks* 0
+  "The number of assertions checked in the current run.")
 
 (defun check (value)
   "Count one behavioral assertion."

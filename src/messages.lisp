@@ -77,14 +77,17 @@
   (:documentation "An ordinary authenticated runtime hosting bounded message operations."))
 
 (defmethod daemon-runtime-client-limit ((runtime message-runtime))
+  "Return RUNTIME's configured concurrent client bound."
   (message-runtime-client-limit runtime))
 
 (defmethod daemon-runtime-error-response ((runtime message-runtime) condition)
+  "Return a fixed rejection packet that carries no request data."
   (declare (ignore runtime condition))
   ;; A reader/type error can retain capability-bearing request data.
   '(:message-error :reason :request))
 
 (defmethod daemon-runtime-read-request ((runtime message-runtime) stream)
+  "Read one packet from STREAM within RUNTIME's character limit and request deadline."
   (let ((*daemon-packet-character-limit* (message-runtime-character-limit runtime)))
     (sb-sys:with-deadline (:seconds (message-runtime-request-timeout runtime))
       (daemon-read-packet stream))))

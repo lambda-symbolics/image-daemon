@@ -44,12 +44,14 @@
   (:documentation "Return true when RUNTIME accepts REQUEST's protocol and capability."))
 
 (defmethod daemon-runtime-request-valid-p ((runtime daemon-runtime) request)
+  "Accept a :LOCALGROUP-REQUEST at the current protocol version with RUNTIME's token."
   (daemon-request-valid-p request (daemon-runtime-token runtime)))
 
 (defgeneric daemon-runtime-error-response (runtime condition)
   (:documentation "Return the packet sent when RUNTIME rejects or cannot handle a request."))
 
 (defmethod daemon-runtime-error-response ((runtime daemon-runtime) condition)
+  "Return an :ERROR packet holding CONDITION's report."
   (declare (ignore runtime))
   (list :error :message (princ-to-string condition)))
 
@@ -120,6 +122,7 @@ start until DAEMON-RUNTIME-START."
   (:documentation "Read one request from STREAM using RUNTIME's framing/deadline policy."))
 
 (defmethod daemon-runtime-read-request ((runtime daemon-runtime) stream)
+  "Read one packet from STREAM under the default packet limit."
   (declare (ignore runtime))
   (daemon-read-packet stream))
 
@@ -127,6 +130,7 @@ start until DAEMON-RUNTIME-START."
   (:documentation "Return RUNTIME's concurrent client bound, or NIL for unbounded admission."))
 
 (defmethod daemon-runtime-client-limit ((runtime daemon-runtime))
+  "Admit any number of clients."
   (declare (ignore runtime))
   nil)
 

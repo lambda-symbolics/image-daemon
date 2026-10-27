@@ -44,6 +44,7 @@
   (:documentation "Set TRANSPORT's terminal cell dimensions."))
 
 (defmethod transport-set-dimensions ((transport transport) columns &key rows)
+  "Store COLUMNS, and ROWS when given, as TRANSPORT's dimensions."
   (setf (transport-columns transport) columns)
   (when rows (setf (transport-rows transport) rows))
   nil)
@@ -53,6 +54,7 @@
   (:documentation "Apply controlling-client geometry and styling to TRANSPORT."))
 
 (defmethod transport-resize ((transport transport) &key rows columns styled-p)
+  "Mark TRANSPORT interactive, record STYLED-P and set its dimensions."
   (setf (transport-interactive-p transport) t
         (transport-styled-p transport) (not (null styled-p)))
   (transport-set-dimensions transport columns :rows rows))

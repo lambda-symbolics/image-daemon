@@ -8,14 +8,17 @@
       (setf (symbol-function name) original))))
 
 (defclass hooked-runtime (daemon-runtime)
-  ())
+  ()
+  (:documentation "A runtime with its own request tag and error packet."))
 
 (defmethod daemon-runtime-request-valid-p ((runtime hooked-runtime) request)
+  "Accept :CUSTOM-REQUEST frames carrying RUNTIME's token at any protocol version."
   (daemon-request-valid-p request (daemon-runtime-token runtime)
                           :request-tag      ':custom-request
                           :protocol-version nil))
 
 (defmethod daemon-runtime-error-response ((runtime hooked-runtime) condition)
+  "Return a fixed packet that tests recognize."
   (declare (ignore runtime condition))
   '(:hook-error :seen t))
 

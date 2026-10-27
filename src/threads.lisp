@@ -4,6 +4,7 @@
   1
   "The total seconds allowed for graceful exit and forced termination of one thread.")
 
+(-> daemon-stop-thread ((or null sb-thread:thread)) null)
 (defun daemon-stop-thread (thread)
   "Stop and reap THREAD within one deadline, unless it is NIL or the caller.
 
@@ -28,6 +29,7 @@ release the blocked cleanup and retry this operation to finish reaping it."
                      :operation ':stop-thread :cause failure))))
   nil)
 
+(-> daemon--join-thread (sb-thread:thread real) (or null sb-thread:join-thread-error))
 (defun daemon--join-thread (thread timeout)
   "Return NIL after joining THREAD, otherwise its structured join failure."
   (handler-case

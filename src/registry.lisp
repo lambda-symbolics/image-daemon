@@ -5,6 +5,7 @@
 (defparameter *daemon-registry-version* 1
   "The readable endpoint registry version.")
 
+(-> daemon-registry-pathname (t t) pathname)
 (defun daemon-registry-pathname (directory identifier)
   "Return IDENTIFIER's discovery pathname beneath DIRECTORY."
   (unless (and (stringp identifier) (plusp (length identifier))
@@ -14,6 +15,8 @@
     (daemon-fail :message "Invalid endpoint identifier." :operation ':registry))
   (merge-pathnames (make-pathname :name identifier :type "sexp") directory))
 
+(-> daemon-registry-record (&key (:identifier t) (:token t) (:port t) (:created-at t) (:pid t))
+    list)
 (defun daemon-registry-record (&key identifier token port created-at
                                    (pid (sb-posix:getpid)))
   "Construct an endpoint discovery record using the deployed wire format."
@@ -21,6 +24,7 @@
         :session-id identifier :pid pid :address "127.0.0.1"
         :port port :token token :created-at created-at))
 
+(-> daemon-registry-record-p (t) boolean)
 (defun daemon-registry-record-p (record)
   "Return true when RECORD is a supported, well-typed endpoint record."
   (handler-case
@@ -37,6 +41,7 @@
            (typep (getf (rest record) :created-at) '(integer 0)))
     (error () nil)))
 
+(-> daemon-registry-call-with-lock ((or pathname string) function) *)
 (defun daemon-registry-call-with-lock (pathname function)
   "Call FUNCTION while serializing registry updates beside PATHNAME."
   (let ((lock-pathname (make-pathname :name "registry" :type "lock"
@@ -44,6 +49,7 @@
     (ensure-directories-exist lock-pathname)
     (ls-flock:call-with-file-lock lock-pathname function)))
 
+(-> daemon-registry--read ((or pathname string)) list)
 (defun daemon-registry--read (pathname)
   "Return PATHNAME's valid complete endpoint record without acquiring its lock."
   (handler-case
@@ -52,6 +58,7 @@
         (and complete-p (daemon-registry-record-p record) record))
     (error () nil)))
 
+(-> daemon-registry-read ((or pathname string)) list)
 (defun daemon-registry-read (pathname)
   "Return PATHNAME's valid complete endpoint record, or NIL when unavailable."
   (handler-case
@@ -61,12 +68,14 @@
          (daemon-registry--read pathname)))
     (error () nil)))
 
+(-> daemon-process-state (t) keyword)
 (defun daemon-process-state (pid)
   "Return :ALIVE, :DEAD or :UNKNOWN without mistaking denied access for death."
   (handler-case
       (ls-compat.posix:process-state pid)
     (error () ':unknown)))
 
+(-> daemon-registry-publish ((or pathname string) t) null)
 (defun daemon-registry-publish (pathname record)
   "Atomically publish RECORD unless a different live capability owns PATHNAME.
 
@@ -90,6 +99,7 @@ its own endpoint during process handoff. Unknown process state retains ownership
      (setf (ls-compat.posix:file-mode pathname) #o600)))
   nil)
 
+(-> daemon-registry-delete-matching ((or pathname string) t &key (:errorp t)) boolean)
 (defun daemon-registry-delete-matching (pathname record &key (errorp nil))
   "Delete PATHNAME only while its complete record equals RECORD.
 
@@ -107,6 +117,7 @@ ERRORP is true, so transactional callers can roll back; otherwise return NIL."
         (handler-case (delete-matching)
           (error () nil)))))
 
+(-> daemon-registry-discover ((or pathname string)) list)
 (defun daemon-registry-discover (directory)
   "Return (PATHNAME . RECORD) entries ordered by newest publication first."
   (sort (loop for pathname in (uiop:directory-files directory "*.sexp")
@@ -115,6 +126,7 @@ ERRORP is true, so transactional callers can roll back; otherwise return NIL."
         #'> :key (lambda (entry)
                    (or (ignore-errors (file-write-date (first entry))) 0))))
 
+(-> daemon-registry-reconcile ((or pathname string)) (integer 0))
 (defun daemon-registry-reconcile (directory)
   "Delete definitely dead discovery entries and return their count."
   (loop for (pathname . record) in (daemon-registry-discover directory)

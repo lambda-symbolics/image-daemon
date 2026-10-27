@@ -291,6 +291,7 @@ detached handoff."
           (setf stream (daemon-socket-stream socket))
           (values socket stream))
       (error (condition)
+        ; mallet:suppress no-ignore-errors -- closing the failed connection must not mask the connect failure
         (if stream
             (ignore-errors (close stream))
             (ignore-errors (sb-bsd-sockets:socket-close socket)))
@@ -318,4 +319,5 @@ compatibility with deployed endpoints."
                   :operation operation
                   :arguments arguments))
            (daemon-read-response stream operation))
+      ; mallet:suppress no-ignore-errors -- closing the finished connection must not mask the response or its failure
       (ignore-errors (close stream)))))

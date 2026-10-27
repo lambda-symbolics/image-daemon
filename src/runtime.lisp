@@ -124,6 +124,7 @@ start until DAEMON-RUNTIME-START."
                         initargs)
                (setf completed-p t))))
       (unless completed-p
+        ; mallet:suppress no-ignore-errors -- closing the unused listener must not mask the creation failure
         (ignore-errors (sb-bsd-sockets:socket-close listener))))))
 
 (defgeneric daemon-runtime-read-request (runtime stream)
@@ -162,12 +163,14 @@ start until DAEMON-RUNTIME-START."
                               runtime request :socket socket :stream stream))))
            (error (condition)
              (when stream
+               ; mallet:suppress no-ignore-errors -- the client may be gone, and its request failed either way
                (ignore-errors
                 (daemon-write-packet
                  stream (daemon-runtime-error-response runtime condition))))))
       (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
         ;; SOCKET-CLOSE consults the cached stream before closing its descriptor.
         ;; A raw shutdown here could target a descriptor already reused after detach.
+        ; mallet:suppress no-ignore-errors -- cleanup unregisters the client even when its socket close fails
         (ignore-errors (sb-bsd-sockets:socket-close socket :abort t))
         (setf (daemon-runtime-client-threads runtime)
               (delete (bordeaux-threads:current-thread) (daemon-runtime-client-threads runtime))
@@ -246,6 +249,7 @@ start or update live; notification wakes a blocked listener after publication."
               (if (or (daemon-runtime-stopping-p runtime)
                       (let ((limit (daemon-runtime-client-limit runtime)))
                         (and limit (>= (length (daemon-runtime-client-sockets runtime)) limit))))
+                  ; mallet:suppress no-ignore-errors -- a refused connection is dropped whether or not its close succeeds
                   (ignore-errors (sb-bsd-sockets:socket-close socket))
                   (handler-case
                       (let ((thread
@@ -255,6 +259,7 @@ start or update live; notification wakes a blocked listener after publication."
                         (push socket (daemon-runtime-client-sockets runtime))
                         (push thread (daemon-runtime-client-threads runtime)))
                     (error (condition)
+                      ; mallet:suppress no-ignore-errors -- closing the socket must not mask the thread creation failure
                       (ignore-errors (sb-bsd-sockets:socket-close socket))
                       (error condition)))))))
       (error (condition)
@@ -299,14 +304,17 @@ start or update live; notification wakes a blocked listener after publication."
             clients (copy-list (daemon-runtime-client-threads runtime))
             sockets (copy-list (daemon-runtime-client-sockets runtime))))
     (when listener
+      ; mallet:suppress no-ignore-errors -- a listener that cannot be reached needs no wake
       (ignore-errors
        (multiple-value-bind (socket stream) (daemon-connect (daemon-runtime-port runtime))
          (declare (ignore stream))
          (sb-bsd-sockets:socket-close socket :abort t))))
     (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
       (dolist (socket sockets)
+        ; mallet:suppress no-ignore-errors -- shutdown closes every client socket even when one close fails
         (ignore-errors (sb-bsd-sockets:socket-close socket :abort t))))
     (daemon-stop-thread server)
+    ; mallet:suppress no-ignore-errors -- shutdown continues when the listener close fails
     (when listener (ignore-errors (sb-bsd-sockets:socket-close listener)))
     (dolist (thread clients) (daemon-stop-thread thread))
     (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))

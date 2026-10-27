@@ -481,6 +481,7 @@ encoding does not fit."
                              "The evaluation token file could not be read completely."))
                token)))
       (when stream
+        ; mallet:suppress no-ignore-errors -- closing the token file must not mask the read result or failure
         (ignore-errors (close stream))))))
 
 (-> eval--hmac
@@ -820,6 +821,7 @@ debugger hook runs."
           (sb-bsd-sockets:socket-connect socket (sb-bsd-sockets:make-inet-address address) port)
           socket)
       (error (condition)
+        ; mallet:suppress no-ignore-errors -- closing the failed socket must not mask the connect failure
         (ignore-errors (sb-bsd-sockets:socket-close socket))
         (error condition)))))
 
@@ -947,6 +949,7 @@ when the renamed object is still the socket that was inspected."
                 (nth-value 1 (sb-bsd-sockets:socket-name listener)))
           listener)
       (error (condition)
+        ; mallet:suppress no-ignore-errors -- closing the failed listener must not mask the bind failure
         (ignore-errors (sb-bsd-sockets:socket-close listener))
         (eval--fail ':listen ':bind "The evaluation TCP endpoint could not listen."
                     :cause condition)))))
@@ -980,6 +983,7 @@ when the renamed object is still the socket that was inspected."
                   (sb-bsd-sockets:socket-error ()
                     nil))))
     (when socket
+      ; mallet:suppress no-ignore-errors -- the wake connection has done its work once it connected
       (ignore-errors (sb-bsd-sockets:socket-close socket))))
   nil)
 
@@ -991,6 +995,7 @@ when the renamed object is still the socket that was inspected."
   "Pass serving failure CONDITION to ENDPOINT's error function, if any."
   (let ((function (eval-endpoint-error-function endpoint)))
     (when function
+      ; mallet:suppress no-ignore-errors -- a failing error function must not stop the endpoint serving
       (ignore-errors (funcall function condition))))
   nil)
 
@@ -1024,6 +1029,7 @@ when the renamed object is still the socket that was inspected."
              nil)
            (error ()
              nil))
+      ; mallet:suppress no-ignore-errors -- closing the finished connection must not stop the client cleanup
       (if stream
           (ignore-errors (close stream))
           (ignore-errors (sb-bsd-sockets:socket-close socket)))))
@@ -1049,10 +1055,12 @@ when the renamed object is still the socket that was inspected."
         (let ((socket (sb-bsd-sockets:socket-accept (eval-endpoint-listener endpoint))))
           (sb-thread:with-mutex ((eval-endpoint-lock endpoint))
             (when (eval-endpoint-stopping-p endpoint)
+              ; mallet:suppress no-ignore-errors -- a refused connection is dropped whether or not its close succeeds
               (ignore-errors (sb-bsd-sockets:socket-close socket))
               (return))
             (if (>= (length (eval-endpoint-client-sockets endpoint))
                     (eval-endpoint-maximum-clients endpoint))
+                ; mallet:suppress no-ignore-errors -- a refused connection is dropped whether or not its close succeeds
                 (ignore-errors (sb-bsd-sockets:socket-close socket))
                 (handler-case
                     (let ((thread (sb-thread:make-thread
@@ -1061,6 +1069,7 @@ when the renamed object is still the socket that was inspected."
                       (push socket (eval-endpoint-client-sockets endpoint))
                       (push thread (eval-endpoint-client-threads endpoint)))
                   (error ()
+                    ; mallet:suppress no-ignore-errors -- a connection without a thread is dropped whether or not its close succeeds
                     (ignore-errors (sb-bsd-sockets:socket-close socket)))))))
       (error ()
         (return))))
@@ -1100,6 +1109,7 @@ failure is resignaled."
                        :name "Image daemon evaluation endpoint"))
         endpoint)
     (error (condition)
+      ; mallet:suppress no-ignore-errors -- the start failure is resignaled, and a stop failure must not mask it
       (ignore-errors (eval-endpoint-stop endpoint))
       (error condition))))
 
@@ -1140,8 +1150,10 @@ operation :QUIESCE naming them."
       (eval--complete-request request '(:evaluation-result :status :condition)))
     (when listener
       (eval--wake-listener endpoint)
+      ; mallet:suppress no-ignore-errors -- shutdown continues when the listener close fails
       (ignore-errors (sb-bsd-sockets:socket-close listener)))
     (dolist (socket sockets)
+      ; mallet:suppress no-ignore-errors -- shutdown closes every client socket even when one close fails
       (ignore-errors (sb-bsd-sockets:socket-close socket)))
     (let ((alive (eval--wait-for-threads threads timeout)))
       (when alive
@@ -1199,6 +1211,7 @@ operation :AUTHENTICATE."
            (setf completed-p t)
            (values socket stream))
       (unless completed-p
+        ; mallet:suppress no-ignore-errors -- closing the failed connection must not mask the authentication failure
         (ignore-errors (sb-bsd-sockets:socket-close socket))))))
 
 (-> eval-call (stream string &key (:maximum-frame-size (integer 1))) t)

@@ -212,6 +212,7 @@ and does not roll back remote effects; semantic cancellation is a dispatcher act
                                 (bordeaux-threads:with-lock-held (lock)
                                   (unless finished
                                     (setf cancelled t)
+                                    ; mallet:suppress no-ignore-errors -- cancellation only unblocks the request, whose socket may already be closed
                                     (ignore-errors (sb-bsd-sockets:socket-shutdown socket :direction ':io))))
                                 (return))
                               (sleep 0.01)))
@@ -233,6 +234,7 @@ and does not roll back remote effects; semantic cancellation is a dispatcher act
                         (daemon-message--fail ':uncertain))))))
             (bordeaux-threads:with-lock-held (lock) (setf finished t))
             (daemon-stop-thread monitor)
+            ; mallet:suppress no-ignore-errors -- closing the finished connection must not mask the result or its failure
             (ignore-errors (close stream :abort t))))
       (daemon-message-error (condition) (error condition))
       (error ()

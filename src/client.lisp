@@ -140,8 +140,10 @@ the attachment through RELAY-FINISH, and NIL for any other end."
                                 ((not (eq mode ':read-only))
                                  (daemon-write-packet stream (list :event event))))))
                       (sleep 0.01)))
+        ; mallet:suppress no-ignore-errors -- teardown continues when the peer has closed the socket
         (when socket
           (ignore-errors (sb-bsd-sockets:socket-shutdown socket :direction ':io)))
+        ; mallet:suppress no-ignore-errors -- teardown continues when the transport is already closed
         (if close-function
             (ignore-errors (funcall close-function))
             (ignore-errors (close stream :abort t)))

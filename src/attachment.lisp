@@ -53,6 +53,7 @@
   (bordeaux-threads:with-lock-held ((attachment-transport-lock attachment))
     (unless (attachment-socket-shutdown-p attachment)
       (setf (attachment-socket-shutdown-p attachment) t)
+      ; mallet:suppress no-ignore-errors -- the peer may have closed the socket already
       (ignore-errors
        (sb-bsd-sockets:socket-shutdown (attachment-socket attachment) :direction ':io))))
   nil)
@@ -63,6 +64,7 @@
   (attachment--shutdown-socket attachment)
   (bordeaux-threads:with-lock-held ((attachment-transport-lock attachment))
     (unless (attachment-stream-closed-p attachment)
+      ; mallet:suppress no-ignore-errors -- an abortive close of a broken stream must not stop teardown
       (ignore-errors
        (close (attachment-stream attachment) :abort t)
        (setf (attachment-stream-closed-p attachment) t))))
@@ -269,6 +271,7 @@ deadline."
             (transport-started-p transport) nil)
       (structlisp:deque-clear (relay-input-events transport))
       (sb-thread:condition-broadcast (relay-input-condition-variable transport)))
+    ; mallet:suppress no-ignore-errors -- a failing terminal restore must not keep the relay from releasing it
     (when direct (ignore-errors (transport-stop direct)))
     (dolist (attachment attachments)
       (handler-case
@@ -355,6 +358,7 @@ deadline."
             (relay-direct-terminal transport) nil)
       (unless (relay-controller transport)
         (setf (transport-interactive-p transport) nil)))
+    ; mallet:suppress no-ignore-errors -- a failing terminal restore must not keep the relay from releasing it
     (when direct (ignore-errors (transport-stop direct)))
     (not (null direct))))
 
@@ -412,6 +416,7 @@ deadline."
                 (transport-styled-p transport) (not (null styled-p)))
           (transport-resize transport :rows next-rows :columns next-columns :styled-p
            styled-p))))
+    ; mallet:suppress no-ignore-errors -- a failing terminal restore must not keep the relay from releasing it
     (when direct (ignore-errors (transport-stop direct)))
     (when (and old-controller (not (eq old-controller attachment)))
       (attachment-send old-controller '(:revoked))
@@ -445,6 +450,7 @@ deadline."
             (transport-interactive-p transport) nil)
       (structlisp:deque-clear (relay-input-events transport))
       (sb-thread:condition-broadcast (relay-input-condition-variable transport)))
+    ; mallet:suppress no-ignore-errors -- a failing terminal restore must not keep the relay from releasing it
     (when direct (ignore-errors (transport-stop direct)))
     (when controller
       (attachment-send controller '(:detached))

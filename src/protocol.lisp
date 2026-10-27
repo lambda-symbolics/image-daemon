@@ -280,8 +280,8 @@ detached handoff."
          :operation ':connect
          :cause     condition)))))
 
-(defun daemon-call (port token operation &optional arguments)
-  "Perform one authenticated daemon OPERATION and return its response.
+(defun daemon-call (port token operation &key arguments)
+  "Perform one authenticated daemon OPERATION with ARGUMENTS and return its response.
 
 The request frame keeps the historical :LOCALGROUP-REQUEST tag for
 compatibility with deployed endpoints."

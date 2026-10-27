@@ -47,12 +47,12 @@
 
 (defclass eval-output-stream (trivial-gray-streams:fundamental-character-output-stream)
   ((builder
-    :initarg :builder
-    :reader eval-output-stream--builder
+    :initarg       :builder
+    :reader        eval-output-stream--builder
     :documentation "The structlisp builder retaining the captured prefix.")
    (column
-    :initform 0
-    :accessor eval-output-stream--column
+    :initform      0
+    :accessor      eval-output-stream--column
     :documentation "The logical output column for FORMAT and FRESH-LINE."))
   (:documentation
    "A character output stream retaining at most a fixed prefix of its output.
@@ -62,127 +62,127 @@ the logical column keeps following everything written."))
 
 (defclass eval-request ()
   ((source
-    :initarg :source
-    :reader eval-request-source
+    :initarg       :source
+    :reader        eval-request-source
     :documentation "The bounded source text holding exactly one form.")
    (deadline
-    :initarg :deadline
-    :reader eval-request-deadline
+    :initarg       :deadline
+    :reader        eval-request-deadline
     :documentation "The internal real time by which the response is due.")
    (lock
-    :initform (sb-thread:make-mutex :name "Image daemon evaluation request")
-    :reader eval-request-lock
+    :initform      (sb-thread:make-mutex :name "Image daemon evaluation request")
+    :reader        eval-request-lock
     :documentation "Guards completion and the response.")
    (condition-variable
-    :initform (sb-thread:make-waitqueue :name "Image daemon evaluation request")
-    :reader eval-request-condition-variable
+    :initform      (sb-thread:make-waitqueue :name "Image daemon evaluation request")
+    :reader        eval-request-condition-variable
     :documentation "Wakes the client waiting for completion.")
    (completed-p
-    :initform nil
-    :accessor eval-request-completed-p
+    :initform      nil
+    :accessor      eval-request-completed-p
     :documentation "Whether a response has been installed.")
    (response
-    :initform nil
-    :accessor eval-request-response
+    :initform      nil
+    :accessor      eval-request-response
     :documentation "The bounded protocol response."))
   (:documentation "One authenticated evaluation and its completion state."))
 
 (defclass eval-endpoint ()
   ((transport
-    :initarg :transport
-    :reader eval-endpoint-transport
+    :initarg       :transport
+    :reader        eval-endpoint-transport
     :documentation "Either :UNIX or :TCP.")
    (unix-pathname
-    :initarg :unix-pathname
-    :reader eval-endpoint-unix-pathname
+    :initarg       :unix-pathname
+    :reader        eval-endpoint-unix-pathname
     :documentation "The absolute Unix socket pathname for the :UNIX transport.")
    (tcp-address
-    :initarg :tcp-address
-    :reader eval-endpoint-tcp-address
+    :initarg       :tcp-address
+    :reader        eval-endpoint-tcp-address
     :documentation "The IPv4 loopback address for the :TCP transport.")
    (tcp-port
-    :initarg :tcp-port
-    :accessor eval-endpoint-tcp-port
+    :initarg       :tcp-port
+    :accessor      eval-endpoint-tcp-port
     :documentation "The TCP port; zero before start asks for an ephemeral one.")
    (token-pathname
-    :initarg :token-pathname
-    :reader eval-endpoint-token-pathname
+    :initarg       :token-pathname
+    :reader        eval-endpoint-token-pathname
     :documentation "The private token file, read only while checking one proof.")
    (package
-    :initarg :package
-    :reader eval-endpoint-package
+    :initarg       :package
+    :reader        eval-endpoint-package
     :documentation "The package sources are read and evaluated in.")
    (evaluation-timeout
-    :initarg :evaluation-timeout
-    :reader eval-endpoint-evaluation-timeout
+    :initarg       :evaluation-timeout
+    :reader        eval-endpoint-evaluation-timeout
     :documentation "Seconds one request may take, from submission to response.")
    (authentication-timeout
-    :initarg :authentication-timeout
-    :reader eval-endpoint-authentication-timeout
+    :initarg       :authentication-timeout
+    :reader        eval-endpoint-authentication-timeout
     :documentation "The absolute seconds a connection has to authenticate.")
    (maximum-frame-size
-    :initarg :maximum-frame-size
-    :reader eval-endpoint-maximum-frame-size
+    :initarg       :maximum-frame-size
+    :reader        eval-endpoint-maximum-frame-size
     :documentation "The largest frame in octets, in either direction.")
    (maximum-source-size
-    :initarg :maximum-source-size
-    :reader eval-endpoint-maximum-source-size
+    :initarg       :maximum-source-size
+    :reader        eval-endpoint-maximum-source-size
     :documentation "The largest evaluation source in UTF-8 octets.")
    (maximum-output-size
-    :initarg :maximum-output-size
-    :reader eval-endpoint-maximum-output-size
+    :initarg       :maximum-output-size
+    :reader        eval-endpoint-maximum-output-size
     :documentation "The most characters of output and value text one response keeps.")
    (queue-capacity
-    :initarg :queue-capacity
-    :reader eval-endpoint-queue-capacity
+    :initarg       :queue-capacity
+    :reader        eval-endpoint-queue-capacity
     :documentation "The most pending evaluations.")
    (maximum-clients
-    :initarg :maximum-clients
-    :reader eval-endpoint-maximum-clients
+    :initarg       :maximum-clients
+    :reader        eval-endpoint-maximum-clients
     :documentation "The most accepted connections, authenticated or not.")
    (error-function
-    :initarg :error-function
-    :reader eval-endpoint-error-function
+    :initarg       :error-function
+    :reader        eval-endpoint-error-function
     :documentation "NIL or a function receiving configuration failures met while serving.")
    (listener
-    :initform nil
-    :accessor eval-endpoint-listener
+    :initform      nil
+    :accessor      eval-endpoint-listener
     :documentation "The listening socket, or NIL when not listening.")
    (owned-unix-identity
-    :initform nil
-    :accessor eval-endpoint-owned-unix-identity
+    :initform      nil
+    :accessor      eval-endpoint-owned-unix-identity
     :documentation "The file identity of the Unix socket this endpoint created.")
    (lock
-    :initform (sb-thread:make-mutex :name "Image daemon evaluation endpoint")
-    :reader eval-endpoint-lock
+    :initform      (sb-thread:make-mutex :name "Image daemon evaluation endpoint")
+    :reader        eval-endpoint-lock
     :documentation "Guards lifecycle, clients and the request queue.")
    (condition-variable
-    :initform (sb-thread:make-waitqueue :name "Image daemon evaluation queue")
-    :reader eval-endpoint-condition-variable
+    :initform      (sb-thread:make-waitqueue :name "Image daemon evaluation queue")
+    :reader        eval-endpoint-condition-variable
     :documentation "Wakes the evaluator for work and shutdown.")
    (stopping-p
-    :initform nil
-    :accessor eval-endpoint-stopping-p
+    :initform      nil
+    :accessor      eval-endpoint-stopping-p
     :documentation "Whether shutdown has begun; a stopped endpoint never restarts.")
    (requests
-    :initform nil
-    :accessor eval-endpoint-requests
+    :initform      nil
+    :accessor      eval-endpoint-requests
     :documentation "The FIFO of pending evaluation requests.")
    (listener-thread
-    :initform nil
-    :accessor eval-endpoint-listener-thread
+    :initform      nil
+    :accessor      eval-endpoint-listener-thread
     :documentation "The accept-loop thread.")
    (evaluator-thread
-    :initform nil
-    :accessor eval-endpoint-evaluator-thread
+    :initform      nil
+    :accessor      eval-endpoint-evaluator-thread
     :documentation "The sole evaluator thread.")
    (client-threads
-    :initform nil
-    :accessor eval-endpoint-client-threads
+    :initform      nil
+    :accessor      eval-endpoint-client-threads
     :documentation "The connection handler threads.")
    (client-sockets
-    :initform nil
-    :accessor eval-endpoint-client-sockets
+    :initform      nil
+    :accessor      eval-endpoint-client-sockets
     :documentation "The accepted sockets, closed during shutdown."))
   (:documentation
    "An authenticated endpoint evaluating trusted Lisp forms in this image.
@@ -194,14 +194,14 @@ It retains the token file pathname, never the token octets."))
 
 (define-condition eval-endpoint-error (daemon-error)
   ((reason
-    :initarg :reason
-    :initform nil
-    :reader eval-endpoint-error-reason
+    :initarg       :reason
+    :initform      nil
+    :reader        eval-endpoint-error-reason
     :documentation "The non-secret failure category, a keyword.")
    (threads
-    :initarg :threads
-    :initform nil
-    :reader eval-endpoint-error-threads
+    :initarg       :threads
+    :initform      nil
+    :reader        eval-endpoint-error-threads
     :documentation "The names of endpoint threads that did not stop, for :QUIESCE."))
   (:documentation
    "A structured evaluation endpoint failure.
@@ -239,7 +239,8 @@ secrets."))
                                                   character)
   (setf (eval-output-stream--column stream)
         (case character
-          ((#\Newline #\Return) 0)
+          ((#\Newline #\Return)
+           0)
           (#\Tab
            (let ((column (eval-output-stream--column stream)))
              (+ column (- 8 (mod column 8)))))
@@ -270,10 +271,10 @@ Circular structure prints with labels, nesting beyond eight levels and lists
 beyond 64 elements are elided, and at most LIMIT characters are kept."
   (let ((stream (eval-output-stream-create limit)))
     (let ((*print-readably* nil)
-          (*print-escape* t)
-          (*print-circle* t)
-          (*print-level* 8)
-          (*print-length* 64))
+          (*print-escape*   t)
+          (*print-circle*   t)
+          (*print-level*    8)
+          (*print-length*   64))
       (write value :stream stream))
     (values (eval-output-stream-text stream)
             (eval-output-stream-truncated-p stream))))
@@ -288,16 +289,16 @@ beyond 64 elements are elided, and at most LIMIT characters are kept."
 (defun eval--frame-grammar (maximum-size)
   "Return the closed data grammar of frames no larger than MAXIMUM-SIZE octets."
   (sexp-config:make-source-grammar
-   :label "Evaluation protocol frame"
-   :keywords *eval-frame-keywords*
-   :maximum-depth 8
-   :maximum-nodes 1024
-   :maximum-string-characters maximum-size
-   :readable-strings-permitted-p t
+   :label                                     "Evaluation protocol frame"
+   :keywords                                  *eval-frame-keywords*
+   :maximum-depth                             8
+   :maximum-nodes                             1024
+   :maximum-string-characters                 maximum-size
+   :readable-strings-permitted-p              t
    :qualified-common-lisp-symbols-permitted-p t
-   :allowed-atom-predicate (lambda (value)
-                             (or (null value) (eq value t) (keywordp value)
-                                 (stringp value) (integerp value)))))
+   :allowed-atom-predicate                    (lambda (value)
+                                                (or (null value) (eq value t) (keywordp value)
+                                                    (stringp value) (integerp value)))))
 
 (defun eval--integer->header (value)
   "Encode unsigned VALUE as a four-octet network-order frame header."
@@ -355,10 +356,14 @@ operation :PROTOCOL and reason :EMPTY, :TRAILING, :OVERSIZED, :TRUNCATED,
           (sexp-config:sexp-config-error (condition)
             (eval--protocol-error
              (case (sexp-config:sexp-config-error-kind condition)
-               (:no-form ':empty)
-               (:multiple-forms ':trailing)
-               ((:data-too-deep :data-too-large) ':oversized)
-               (otherwise ':malformed))
+               (:no-form
+                ':empty)
+               (:multiple-forms
+                ':trailing)
+               ((:data-too-deep :data-too-large)
+                ':oversized)
+               (otherwise
+                ':malformed))
              "Evaluation protocol frame violates its data grammar.")))))))
 
 (defun eval-write-frame (stream value maximum-size)
@@ -369,9 +374,9 @@ encoding does not fit."
   (let ((capture (eval-output-stream-create maximum-size)))
     (with-standard-io-syntax
       (let ((*print-readably* t)
-            (*print-circle* t)
-            (*print-level* 12)
-            (*print-length* 256))
+            (*print-circle*   t)
+            (*print-level*    12)
+            (*print-length*   256))
         (write value :stream capture)))
     (let ((octets (and (not (eval-output-stream-truncated-p capture))
                        (ls-compat:utf8-string-to-octets (eval-output-stream-text capture)))))
@@ -468,9 +473,9 @@ encoding does not fit."
 
 TOKEN is the token file's content, as an octet vector or a string encoded as
 UTF-8. Intermediate octets are wiped before returning."
-  (let ((key (if (stringp token) (ls-compat:utf8-string-to-octets token) (copy-seq token)))
+  (let ((key          (if (stringp token) (ls-compat:utf8-string-to-octets token) (copy-seq token)))
         (nonce-octets (eval--hex->octets nonce *eval-nonce-octets*))
-        (proof nil))
+        (proof        nil))
     (unwind-protect
          (progn
            (unless nonce-octets
@@ -488,16 +493,16 @@ UTF-8. Intermediate octets are wiped before returning."
 
 The token is read from TOKEN-PATHNAME only for this comparison, and every
 secret octet is wiped on every exit."
-  (let ((nonce (ironclad:random-data *eval-nonce-octets*))
-        (token nil)
+  (let ((nonce    (ironclad:random-data *eval-nonce-octets*))
+        (token    nil)
         (expected nil)
         (supplied nil))
     (unwind-protect
          (progn
            (eval-write-frame stream
-                             (list ':challenge :version *eval-protocol-version*
+                             (list ':challenge :version   *eval-protocol-version*
                                                :algorithm ':hmac-sha-256
-                                               :nonce (eval--octets->hex nonce))
+                                               :nonce     (eval--octets->hex nonce))
                              maximum-frame-size)
            (let ((proof (handler-case
                             (getf (eval--decode-schema
@@ -579,20 +584,20 @@ EVAL-ENDPOINT-ERROR with operation :CONFIGURE."
     (require-setting (or (null error-function) (functionp error-function)) ':error-function
                      "The error function must be NIL or a function."))
   (make-instance 'eval-endpoint
-                 :transport transport
-                 :unix-pathname unix-pathname
-                 :tcp-address tcp-address
-                 :tcp-port tcp-port
-                 :token-pathname token-pathname
-                 :package (find-package package)
-                 :evaluation-timeout evaluation-timeout
+                 :transport              transport
+                 :unix-pathname          unix-pathname
+                 :tcp-address            tcp-address
+                 :tcp-port               tcp-port
+                 :token-pathname         token-pathname
+                 :package                (find-package package)
+                 :evaluation-timeout     evaluation-timeout
                  :authentication-timeout authentication-timeout
-                 :maximum-frame-size maximum-frame-size
-                 :maximum-source-size maximum-source-size
-                 :maximum-output-size maximum-output-size
-                 :queue-capacity queue-capacity
-                 :maximum-clients maximum-clients
-                 :error-function error-function))
+                 :maximum-frame-size     maximum-frame-size
+                 :maximum-source-size    maximum-source-size
+                 :maximum-output-size    maximum-output-size
+                 :queue-capacity         queue-capacity
+                 :maximum-clients        maximum-clients
+                 :error-function         error-function))
 
 
 ;;;; -- Evaluation --
@@ -616,7 +621,7 @@ EVAL-ENDPOINT-ERROR with operation :CONFIGURE."
   (with-standard-io-syntax
     (let ((*read-eval* nil)
           (*readtable* (copy-readtable nil))
-          (*package* package))
+          (*package*   package))
       (multiple-value-bind (form position) (read-from-string source nil ':end-of-input)
         (when (eq form ':end-of-input)
           (eval--protocol-error ':empty "The evaluation source contains no form."))
@@ -631,23 +636,23 @@ Debugger entry, including BREAK, becomes a :CONDITION result before any process
 debugger hook runs."
   (let* ((output-limit (min (eval-endpoint-maximum-output-size endpoint)
                             (max 16 (floor (eval-endpoint-maximum-frame-size endpoint) 4))))
-         (output (eval-output-stream-create output-limit)))
+         (output       (eval-output-stream-create output-limit)))
     (labels ((condition-response (condition timed-out-p)
                "Return the bounded failure response for CONDITION."
                (multiple-value-bind (report report-truncated-p)
                    (eval-print-bounded condition output-limit)
                  (list ':evaluation-result
-                       :status (if timed-out-p ':timeout ':condition)
-                       :condition-type (string (type-of condition))
-                       :report report
+                       :status             (if timed-out-p ':timeout ':condition)
+                       :condition-type     (string (type-of condition))
+                       :report             report
                        :report-truncated-p report-truncated-p
-                       :output (eval-output-stream-text output)
+                       :output             (eval-output-stream-text output)
                        :output-truncated-p (eval-output-stream-truncated-p output))))
 
              (render-values (values)
                "Return the success response rendering every one of VALUES."
-               (let ((remaining output-limit)
-                     (rendered nil)
+               (let ((remaining   output-limit)
+                     (rendered    nil)
                      (truncated-p nil))
                  (dolist (value values)
                    (multiple-value-bind (text value-truncated-p)
@@ -657,29 +662,29 @@ debugger hook runs."
                      (when value-truncated-p
                        (setf truncated-p t))))
                  (list ':evaluation-result
-                       :status ':ok
-                       :values (nreverse rendered)
+                       :status             ':ok
+                       :values             (nreverse rendered)
                        :values-truncated-p truncated-p
-                       :output (eval-output-stream-text output)
+                       :output             (eval-output-stream-text output)
                        :output-truncated-p (eval-output-stream-truncated-p output)))))
       (handler-case
           (let ((remaining (eval--remaining-seconds request))
-                (hook (lambda (condition hook)
-                        (declare (ignore hook))
-                        (return-from eval--evaluate-request
-                          (condition-response condition nil)))))
+                (hook      (lambda (condition hook)
+                             (declare (ignore hook))
+                             (return-from eval--evaluate-request
+                               (condition-response condition nil)))))
             (when (<= remaining 0)
               (eval--fail ':evaluate ':expired "The evaluation expired before it started."))
             (sb-ext:with-timeout remaining
-              (let* ((silent-input (make-string-input-stream ""))
-                     (*package* (eval-endpoint-package endpoint))
-                     (*standard-output* output)
-                     (*error-output* output)
-                     (*trace-output* output)
-                     (*debug-io* (make-two-way-stream silent-input output))
-                     (*query-io* (make-two-way-stream silent-input output))
-                     (*terminal-io* (make-two-way-stream silent-input output))
-                     (*debugger-hook* hook)
+              (let* ((silent-input                  (make-string-input-stream ""))
+                     (*package*                     (eval-endpoint-package endpoint))
+                     (*standard-output*             output)
+                     (*error-output*                output)
+                     (*trace-output*                output)
+                     (*debug-io*                    (make-two-way-stream silent-input output))
+                     (*query-io*                    (make-two-way-stream silent-input output))
+                     (*terminal-io*                 (make-two-way-stream silent-input output))
+                     (*debugger-hook*               hook)
                      (sb-ext:*invoke-debugger-hook* hook))
                 (render-values
                  (multiple-value-list
@@ -706,7 +711,7 @@ debugger hook runs."
 (defun eval--submit (endpoint source)
   "Queue SOURCE on ENDPOINT and return its response, waiting no longer than its deadline."
   (let ((request (make-instance 'eval-request
-                                :source source
+                                :source   source
                                 :deadline (+ (get-internal-real-time)
                                              (* (eval-endpoint-evaluation-timeout endpoint)
                                                 internal-time-units-per-second)))))
@@ -728,11 +733,11 @@ debugger hook runs."
       (if (eval-request-completed-p request)
           (eval-request-response request)
           (list ':evaluation-result
-                :status ':timeout
-                :condition-type "TIMEOUT"
-                :report "The evaluation deadline expired."
+                :status             ':timeout
+                :condition-type     "TIMEOUT"
+                :report             "The evaluation deadline expired."
                 :report-truncated-p nil
-                :output ""
+                :output             ""
                 :output-truncated-p nil)))))
 
 (defun eval--request-source (request maximum-source-size)
@@ -829,8 +834,8 @@ when the renamed object is still the socket that was inspected."
         (eval--fail ':listen ':unsafe-socket-path
                     "The evaluation socket path holds an alien or non-socket object."))
       (eval--require-stale-unix-endpoint pathname)
-      (let ((quarantine (make-pathname :name (format nil ".eval-stale-~A" (daemon-random-nonce))
-                                       :type nil
+      (let ((quarantine (make-pathname :name     (format nil ".eval-stale-~A" (daemon-random-nonce))
+                                       :type     nil
                                        :defaults pathname)))
         (handler-case
             (sb-posix:rename (eval--native-namestring pathname)
@@ -931,15 +936,15 @@ when the renamed object is still the socket that was inspected."
 (defun eval--handle-client (endpoint socket)
   "Authenticate SOCKET, then serve its requests one at a time until it closes."
   (let ((maximum (eval-endpoint-maximum-frame-size endpoint))
-        (stream nil))
+        (stream  nil))
     (unwind-protect
          (handler-case
              (progn
                (setf stream (sb-bsd-sockets:socket-make-stream
                              socket :input t :output t
                                     :element-type '(unsigned-byte 8)
-                                    :buffering ':none
-                                    :timeout (eval-endpoint-evaluation-timeout endpoint)))
+                                    :buffering    ':none
+                                    :timeout      (eval-endpoint-evaluation-timeout endpoint)))
                (sb-ext:with-timeout (eval-endpoint-authentication-timeout endpoint)
                  (eval--authenticate stream (eval-endpoint-token-pathname endpoint) maximum))
                (loop for request = (eval-read-frame stream maximum)
@@ -1095,19 +1100,19 @@ TOKEN is the token file's content, as a string or octet vector. Return two
 values: the socket and its authenticated octet stream, whose reads and writes
 wait at most TIMEOUT seconds. A refused proof signals EVAL-ENDPOINT-ERROR with
 operation :AUTHENTICATE."
-  (let ((socket (ecase transport
-                  (:unix
-                   #-win32 (eval--connect-unix unix-pathname)
-                   #+win32 (eval--fail ':listen ':transport "This host has no filesystem sockets."))
-                  (:tcp
-                   (eval--connect-tcp tcp-address tcp-port))))
+  (let ((socket      (ecase transport
+                       (:unix
+                        #-win32 (eval--connect-unix unix-pathname)
+                        #+win32 (eval--fail ':listen ':transport "This host has no filesystem sockets."))
+                       (:tcp
+                        (eval--connect-tcp tcp-address tcp-port))))
         (completed-p nil))
     (unwind-protect
-         (let* ((stream (sb-bsd-sockets:socket-make-stream
-                         socket :input t :output t
-                                :element-type '(unsigned-byte 8)
-                                :buffering ':none
-                                :timeout timeout))
+         (let* ((stream    (sb-bsd-sockets:socket-make-stream
+                            socket :input t :output t
+                                   :element-type '(unsigned-byte 8)
+                                   :buffering    ':none
+                                   :timeout      timeout))
                 (challenge (eval-read-frame stream maximum-frame-size)))
            (unless (and (consp challenge) (eq (first challenge) ':challenge))
              (eval--fail ':authenticate ':malformed "The endpoint sent no challenge."))

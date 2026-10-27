@@ -12,10 +12,10 @@ An unreaped thread signals DAEMON-ERROR with operation :STOP-THREAD. Its cause
 is a JOIN-THREAD-ERROR retaining the target through SB-THREAD:THREAD-ERROR-THREAD;
 release the blocked cleanup and retry this operation to finish reaping it."
   (when (and thread (not (eq thread (bordeaux-threads:current-thread))))
-    (let* ((timeout *daemon-thread-stop-timeout-seconds*)
+    (let* ((timeout  *daemon-thread-stop-timeout-seconds*)
            (deadline (+ (get-internal-real-time)
                         (* timeout internal-time-units-per-second)))
-           (failure (daemon--join-thread thread (/ timeout 2))))
+           (failure  (daemon--join-thread thread (/ timeout 2))))
       (when (and failure (eq (sb-thread:join-thread-problem failure) ':timeout))
         (handler-case (sb-thread:terminate-thread thread)
           (sb-thread:interrupt-thread-error () nil))

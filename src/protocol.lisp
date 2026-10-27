@@ -25,25 +25,25 @@ their own condition hierarchy.")
 
 (define-condition daemon-error (error)
   ((message
-    :initarg :message
-    :reader daemon-error-message
-    :type string
+    :initarg       :message
+    :reader        daemon-error-message
+    :type          string
     :documentation "The complete failure description.")
    (operation
-    :initarg :operation
-    :reader daemon-error-operation
-    :type keyword
+    :initarg       :operation
+    :reader        daemon-error-operation
+    :type          keyword
     :documentation "The daemon operation that failed.")
    (session-id
-    :initarg :session-id
-    :initform nil
-    :reader daemon-error-session-id
-    :type (or null string)
+    :initarg       :session-id
+    :initform      nil
+    :reader        daemon-error-session-id
+    :type          (or null string)
     :documentation "The requested session identifier, when known.")
    (cause
-    :initarg :cause
-    :initform nil
-    :reader daemon-error-cause
+    :initarg       :cause
+    :initform      nil
+    :reader        daemon-error-cause
     :documentation "The underlying condition, when one exists."))
   (:report (lambda (condition stream)
              (write-string (daemon-error-message condition) stream)))
@@ -52,10 +52,10 @@ their own condition hierarchy.")
 (defun daemon-fail (&key message operation session-id cause)
   "Signal a structured daemon protocol failure."
   (error *daemon-error-class*
-         :message message
-         :operation operation
+         :message    message
+         :operation  operation
          :session-id session-id
-         :cause cause))
+         :cause      cause))
 
 
 ;;;; -- Identity --
@@ -100,7 +100,7 @@ detached handoff."
           (daemon-fail
            :message
            "A session identifier must be a seven-character Bitcoin Base58 identifier, with an optional hyphen after the first, or a legacy twelve-character hexadecimal identifier."
-           :operation ':arguments
+           :operation  ':arguments
            :session-id (and (stringp value) value))))))
 
 (defun session-identifier-display (identifier)
@@ -124,9 +124,9 @@ detached handoff."
 (defun packet-payload (packet)
   "Return PACKET as readable text without reader evaluation syntax."
   (with-standard-io-syntax
-    (let ((*print-circle* nil)
+    (let ((*print-circle*   nil)
           (*print-readably* t)
-          (*print-pretty* nil))
+          (*print-pretty*   nil))
       (with-output-to-string (stream)
         (write packet :stream stream)))))
 
@@ -135,7 +135,7 @@ detached handoff."
   (let ((payload (packet-payload packet)))
     (when (> (length payload) *daemon-packet-character-limit*)
       (daemon-fail
-       :message "A daemon packet exceeded the configured limit."
+       :message   "A daemon packet exceeded the configured limit."
        :operation ':write-packet))
     (format nil "~D~%~A" (length payload) payload)))
 
@@ -149,7 +149,7 @@ detached handoff."
   "Read one bounded decimal frame header, returning NIL only at clean end of file."
   (let ((characters (make-array 16
                                 :element-type 'character
-                                :adjustable t
+                                :adjustable   t
                                 :fill-pointer 0)))
     (loop for character = (read-char stream nil nil)
           do (cond
@@ -157,14 +157,14 @@ detached handoff."
                 (if (zerop (length characters))
                     (return nil)
                     (daemon-fail
-                     :message "A daemon frame header ended early."
+                     :message   "A daemon frame header ended early."
                      :operation ':read-packet)))
                ((char= character #\Newline)
                 (return (coerce characters 'string)))
                ((>= (length characters)
                     *daemon-frame-header-character-limit*)
                 (daemon-fail
-                 :message "A daemon frame header exceeded the configured limit."
+                 :message   "A daemon frame header exceeded the configured limit."
                  :operation ':read-packet))
                (t
                 (vector-push-extend character characters))))))
@@ -177,12 +177,12 @@ detached handoff."
     (unless (and (plusp (length header))
                  (every #'digit-char-p header))
       (daemon-fail
-       :message "A daemon frame header is malformed."
+       :message   "A daemon frame header is malformed."
        :operation ':read-packet))
     (let ((length (parse-integer header)))
       (unless (<= 1 length *daemon-packet-character-limit*)
         (daemon-fail
-         :message "A daemon packet exceeded the configured limit."
+         :message   "A daemon packet exceeded the configured limit."
          :operation ':read-packet))
       length)))
 
@@ -193,7 +193,7 @@ detached handoff."
           for character = (read-char stream nil nil)
           do (unless character
                (daemon-fail
-                :message "A daemon packet ended before its declared length."
+                :message   "A daemon packet ended before its declared length."
                 :operation ':read-packet))
              (setf (char payload index) character))
     payload))
@@ -217,16 +217,16 @@ detached handoff."
                                                         #\Newline)))
                                     (subseq payload position)))
                   (daemon-fail
-                   :message "A daemon packet is malformed."
+                   :message   "A daemon packet is malformed."
                    :operation ':read-packet))
                 packet)))
         (daemon-error (condition)
           (error condition))
         (error (condition)
           (daemon-fail
-           :message "A daemon packet could not be read safely."
+           :message   "A daemon packet could not be read safely."
            :operation ':read-packet
-           :cause condition))))))
+           :cause     condition))))))
 
 (defun daemon-read-response (stream operation)
   "Read one required response within the daemon transport deadline."
@@ -234,13 +234,13 @@ detached handoff."
       (sb-sys:with-deadline (:seconds *daemon-connect-timeout-seconds*)
         (or (daemon-read-packet stream)
             (daemon-fail
-             :message "The daemon endpoint closed without a response."
+             :message   "The daemon endpoint closed without a response."
              :operation operation)))
     (sb-sys:deadline-timeout (condition)
       (daemon-fail
-       :message "The daemon endpoint did not respond in time."
+       :message   "The daemon endpoint did not respond in time."
        :operation operation
-       :cause condition))))
+       :cause     condition))))
 
 
 ;;;; -- Loopback Transport --
@@ -249,16 +249,16 @@ detached handoff."
   "Return a buffered UTF-8 character stream for SOCKET."
   (sb-bsd-sockets:socket-make-stream
    socket
-   :input t
-   :output t
-   :element-type 'character
+   :input           t
+   :output          t
+   :element-type    'character
    :external-format ':utf-8
-   :buffering ':full))
+   :buffering       ':full))
 
 (defun daemon-connect (port)
   "Connect to the loopback daemon endpoint at PORT."
   (let ((socket (make-instance 'sb-bsd-sockets:inet-socket
-                               :type ':stream
+                               :type     ':stream
                                :protocol ':tcp))
         (stream nil))
     (handler-case
@@ -276,9 +276,9 @@ detached handoff."
             (ignore-errors (close stream))
             (ignore-errors (sb-bsd-sockets:socket-close socket)))
         (daemon-fail
-         :message (format nil "Could not connect to daemon port ~D." port)
+         :message   (format nil "Could not connect to daemon port ~D." port)
          :operation ':connect
-         :cause condition)))))
+         :cause     condition)))))
 
 (defun daemon-call (port token operation &optional arguments)
   "Perform one authenticated daemon OPERATION and return its response.
@@ -294,7 +294,7 @@ compatibility with deployed endpoints."
             stream
             (list :localgroup-request
                   :version *daemon-protocol-version*
-                  :token token
+                  :token     token
                   :operation operation
                   :arguments arguments))
            (daemon-read-response stream operation))

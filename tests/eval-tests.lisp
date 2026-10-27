@@ -19,8 +19,8 @@
   "Return an unstarted endpoint beneath ROOT, adjusted by ARGUMENTS."
   (apply #'eval-endpoint-create
          (append arguments
-                 (list :transport #-win32 ':unix #+win32 ':tcp
-                       :unix-pathname (merge-pathnames "private/eval.sock" root)
+                 (list :transport      #-win32 ':unix #+win32 ':tcp
+                       :unix-pathname  (merge-pathnames "private/eval.sock" root)
                        :token-pathname (merge-pathnames "token" root)
                        :evaluation-timeout 1 :authentication-timeout 1
                        :maximum-frame-size 65536 :maximum-source-size 4096
@@ -28,10 +28,10 @@
 
 (defun eval-tests--connect (endpoint token)
   "Connect and authenticate to ENDPOINT with TOKEN, returning the socket and stream."
-  (eval-connect :transport (eval-endpoint-transport endpoint)
+  (eval-connect :transport     (eval-endpoint-transport endpoint)
                 :unix-pathname (eval-endpoint-unix-pathname endpoint)
-                :tcp-address (eval-endpoint-tcp-address endpoint)
-                :tcp-port (eval-endpoint-tcp-port endpoint)
+                :tcp-address   (eval-endpoint-tcp-address endpoint)
+                :tcp-port      (eval-endpoint-tcp-port endpoint)
                 :token token :maximum-frame-size 65536 :timeout 2))
 
 (defun eval-tests--frame (source)
@@ -147,11 +147,11 @@
 
 (defun test-eval-debugger-hook ()
   "Test evaluation intercepts debugger entry before the process hook."
-  (let* ((endpoint (eval-endpoint-create :token-pathname #p"/nonexistent/token"))
-         (request (make-instance 'image-daemon::eval-request
-                                 :source "(break \"eval test\")"
-                                 :deadline (+ (get-internal-real-time)
-                                              (* 2 internal-time-units-per-second))))
+  (let* ((endpoint            (eval-endpoint-create :token-pathname #p"/nonexistent/token"))
+         (request             (make-instance 'image-daemon::eval-request
+                                             :source   "(break \"eval test\")"
+                                             :deadline (+ (get-internal-real-time)
+                                                          (* 2 internal-time-units-per-second))))
          (outer-hook-called-p nil))
     (let ((sb-ext:*invoke-debugger-hook* (lambda (condition hook)
                                            (declare (ignore condition hook))
@@ -170,7 +170,7 @@
    (lambda (root)
      (eval-tests--write-token root "eval-token")
      (let ((endpoint (eval-tests--endpoint root))
-           (stream nil))
+           (stream   nil))
        (unwind-protect
             (progn
               (eval-endpoint-start endpoint)
@@ -216,8 +216,8 @@
    "paths"
    (lambda (root)
      (eval-tests--write-token root "path-token")
-     (let ((first (eval-tests--endpoint root))
-           (second (eval-tests--endpoint root))
+     (let ((first    (eval-tests--endpoint root))
+           (second   (eval-tests--endpoint root))
            (pathname (merge-pathnames "private/eval.sock" root)))
        (unwind-protect
             (progn
@@ -257,7 +257,7 @@
    (lambda (root)
      (let* ((pathname (eval-tests--write-token root "token-text"))
             (failures nil)
-            (endpoint (eval-tests--endpoint root :transport ':tcp
+            (endpoint (eval-tests--endpoint root :transport      ':tcp
                                                  :error-function (lambda (condition)
                                                                    (push condition failures)))))
        (unwind-protect
@@ -289,7 +289,7 @@
    (lambda (root)
      (eval-tests--write-token root "bound-token")
      (let ((endpoint (eval-tests--endpoint root :transport ':tcp :maximum-clients 1))
-           (sockets nil))
+           (sockets  nil))
        (flet ((raw-stream ()
                 (let ((socket (image-daemon::eval--connect-tcp
                                "127.0.0.1" (eval-endpoint-tcp-port endpoint))))
@@ -329,7 +329,7 @@
    (lambda (root)
      (eval-tests--write-token root "start-token")
      (let ((endpoint (eval-tests--endpoint root))
-           (calls 0))
+           (calls    0))
        (let ((*eval-make-thread-function*
                (lambda (function &key name)
                  (when (= (incf calls) 2)

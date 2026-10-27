@@ -28,7 +28,7 @@
            (eq (first record) ':localgroup-endpoint)
            (= (getf (rest record) :version) *daemon-registry-version*)
            (let ((identifier (getf (rest record) :session-id))
-                 (token (getf (rest record) :token)))
+                 (token      (getf (rest record) :token)))
              (and (stringp identifier) (plusp (length identifier))
                   (stringp token) (plusp (length token))))
            (typep (getf (rest record) :pid) '(integer 1))

@@ -21,10 +21,14 @@
     (labels ((valid (value depth)
                (and (<= (incf nodes) 100000) (<= depth 64)
                     (typecase value
-                      (null t)
-                      (string t)
-                      (rational t)
-                      (keyword t)
+                      (null
+                       t)
+                      (string
+                       t)
+                      (rational
+                       t)
+                      (keyword
+                       t)
                       (cons
                        (let ((marked nil))
                          (unwind-protect
@@ -37,7 +41,8 @@
                                     unless (valid (first tail) (1+ depth)) do (return nil)
                                     finally (return (null tail)))
                            (dolist (cell marked) (remhash cell active)))))
-                      (t (eq value t))))))
+                      (t
+                       (eq value t))))))
       (not (null (valid value 0))))))
 
 (defun daemon-message--bounded (value limit)
@@ -143,7 +148,7 @@ the dispatcher must authorize them. Request/response frames and clients are boun
     (daemon-message--fail ':configuration))
   (daemon-runtime-create
    :directory directory :identifier identifier :token token :publish-p publish-p
-   :class 'message-runtime
+   :class    'message-runtime
    :initargs (list :dispatcher dispatcher :character-limit character-limit
                   :client-limit client-limit :request-timeout request-timeout)
    :request-function
@@ -163,11 +168,11 @@ and does not roll back remote effects; semantic cancellation is a dispatcher act
                (or (null cancelled-p) (functionp cancelled-p)))
     (daemon-message--fail ':configuration))
   (unless (daemon-registry-record-p record) (daemon-message--fail ':request))
-  (let* ((envelope (list :action action :id id :sender sender :receiver receiver :payload payload))
-         (request (list :localgroup-request :version *daemon-protocol-version*
-                        :token (getf (rest record) :token) :operation :message :arguments envelope))
+  (let* ((envelope                         (list :action action :id id :sender sender :receiver receiver :payload payload))
+         (request                          (list :localgroup-request :version *daemon-protocol-version*
+                                                 :token (getf (rest record) :token) :operation :message :arguments envelope))
          (*daemon-connect-timeout-seconds* timeout)
-         (*daemon-packet-character-limit* character-limit)
+         (*daemon-packet-character-limit*  character-limit)
          (monitor nil) (finished nil) (cancelled nil) (lock (bordeaux-threads:make-lock)))
     (unless (daemon-message--envelope-p envelope)
       (daemon-message--fail ':request))
@@ -204,7 +209,8 @@ and does not roll back remote effects; semantic cancellation is a dispatcher act
                         (daemon-message--bounded (getf (rest response) :value) character-limit))
                        (:rejected
                         (daemon-message--fail (or (getf (rest response) :reason) ':rejected)))
-                       (t (daemon-message--fail ':uncertain))))))
+                       (t
+                        (daemon-message--fail ':uncertain))))))
             (bordeaux-threads:with-lock-held (lock) (setf finished t))
             (daemon-stop-thread monitor)
             (ignore-errors (close stream :abort t))))

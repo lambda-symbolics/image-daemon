@@ -14,15 +14,16 @@
                       (error () nil))
         while packet
         do (case (first packet)
-             (:detach (return))
+             (:detach
+              (return))
              (:event
               (when (and (= (length packet) 2)
                          (not (eq (attachment-mode attachment) ':read-only))
                          (funcall event-validator (second packet)))
                 (relay-enqueue-event relay attachment (second packet))))
              (:resize
-              (let ((rows (getf (rest packet) :rows))
-                    (columns (getf (rest packet) :columns))
+              (let ((rows     (getf (rest packet) :rows))
+                    (columns  (getf (rest packet) :columns))
                     (styled-p (getf (rest packet) :styled-p)))
                 (when (and (typep rows '(integer 1 10000))
                            (typep columns '(integer 1 10000)) (typep styled-p 'boolean))
@@ -67,15 +68,16 @@ PACKET-FUNCTION receives unrecognized packets; a true return ends the attachment
                        (when (daemon-attach--exit-p packet)
                          (when exit-function
                            (funcall exit-function
-                                    (list* :status (getf (rest packet) :status)
+                                    (list* :status  (getf (rest packet) :status)
                                            :message (getf (rest packet) :message)
                                            (let ((details (getf (rest packet) :details)))
                                              (when details (list :details details))))))
                          (return)))
-                       ((:detached :revoked) (return))
-                       (otherwise
-                        (when (and packet-function (funcall packet-function packet))
-                          (return)))))
+                      ((:detached :revoked)
+                       (return))
+                      (otherwise
+                       (when (and packet-function (funcall packet-function packet))
+                         (return)))))
          (error () nil))
     (funcall stop-function))
   nil)
@@ -95,7 +97,7 @@ true to end the attachment after handling a host-specific control packet.
 Return the (:STATUS STATUS :MESSAGE MESSAGE) plist when the application ended
 the attachment through RELAY-FINISH, and NIL for any other end."
   (unless (or socket close-function)
-    (daemon-fail :message "An attachment socket or shutdown callback is required."
+    (daemon-fail :message   "An attachment socket or shutdown callback is required."
                  :operation ':attach))
   (let ((lock (bordeaux-threads:make-lock "Image daemon attach client"))
         (stopped-p nil) (receiver nil) (exit nil))
@@ -110,7 +112,7 @@ the attachment through RELAY-FINISH, and NIL for any other end."
                    (bordeaux-threads:make-thread
                     (lambda ()
                       (daemon-attach-receive stream output-stream #'stop
-                                              :exit-function #'record-exit
+                                              :exit-function   #'record-exit
                                               :packet-function packet-function))
                     :name "Image daemon attach input"))
              (loop until (stopped-p)

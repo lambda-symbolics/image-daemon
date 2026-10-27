@@ -10,8 +10,8 @@
 
 (defun test-handoff-tickets ()
   "Exercise ticket claim, ownership, cancellation and cleanup."
-  (let* ((root (merge-pathnames (format nil "daemon-handoff-~A/" (daemon-random-nonce))
-                                (uiop:temporary-directory)))
+  (let* ((root   (merge-pathnames (format nil "daemon-handoff-~A/" (daemon-random-nonce))
+                                  (uiop:temporary-directory)))
          (ticket (handoff-ticket-pathname root "session")))
     (unwind-protect
          (progn
@@ -29,7 +29,7 @@
              (check (and (probe-file claimed) (not (probe-file ticket)))
                     "a claim renames the ticket")
              (check (handoff-ticket-owned-record ticket :token "token"
-                                                 :validate #'handoff-tests--valid-p)
+                                                 :validate     #'handoff-tests--valid-p)
                     "the claimant owns its ticket")
              (check (null (handoff-ticket-owned-record ticket :token "other"))
                     "ownership needs the ticket's token")
@@ -55,8 +55,8 @@
 
 (defun test-handoff-supervised-launch ()
   "Exercise the gated supervisor recording its launcher's process group."
-  (let* ((root (merge-pathnames (format nil "daemon-supervisor-~A/" (daemon-random-nonce))
-                                (uiop:temporary-directory)))
+  (let* ((root   (merge-pathnames (format nil "daemon-supervisor-~A/" (daemon-random-nonce))
+                                  (uiop:temporary-directory)))
          (ticket (handoff-ticket-pathname root "launch"))
          (marker (merge-pathnames "ran" root)))
     (unwind-protect
@@ -77,8 +77,8 @@
 
 (defun test-handoff-endpoint-readiness ()
   "Exercise authenticated readiness of a replacement endpoint."
-  (let* ((root (merge-pathnames (format nil "daemon-ready-~A/" (daemon-random-nonce))
-                                (uiop:temporary-directory)))
+  (let* ((root    (merge-pathnames (format nil "daemon-ready-~A/" (daemon-random-nonce))
+                                   (uiop:temporary-directory)))
          (runtime nil))
     (flet ((respond (runtime request &key socket stream)
              (declare (ignore runtime socket))
@@ -88,7 +88,7 @@
       (unwind-protect
            (progn
              (setf runtime (daemon-runtime-create :directory root :identifier "ready"
-                                                  :token "capability"
+                                                  :token            "capability"
                                                   :request-function #'respond))
              (daemon-runtime-start runtime)
              (let ((record (daemon-runtime-record runtime)))

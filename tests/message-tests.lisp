@@ -26,13 +26,19 @@
            :dispatcher
            (lambda (envelope &key cancelled-p)
              (case (getf envelope :action)
-               (:echo (list :pid (sb-posix:getpid) :data (getf envelope :payload)))
-               (:oversize (make-string 4096 :initial-element #\x))
-               (:block (loop until (funcall cancelled-p) do (sleep 0.02)) nil)
-               (:reject (error 'image-daemon:daemon-message-error :reason ':denied
-                               :message "Denied" :operation ':message))
-               (:stop (bordeaux-threads:with-lock-held (lock) (setf done t)) ':stopping)
-               (t (error "Unknown test action"))))))
+               (:echo
+                (list :pid (sb-posix:getpid) :data (getf envelope :payload)))
+               (:oversize
+                (make-string 4096 :initial-element #\x))
+               (:block
+                (loop until (funcall cancelled-p) do (sleep 0.02)) nil)
+               (:reject
+                (error 'image-daemon:daemon-message-error :reason ':denied
+                       :message "Denied" :operation ':message))
+               (:stop
+                (bordeaux-threads:with-lock-held (lock) (setf done t)) ':stopping)
+               (t
+                (error "Unknown test action"))))))
     (unwind-protect
          (progn
            (image-daemon:daemon-runtime-start runtime)
@@ -43,11 +49,11 @@
 
 (defun test-process-transport ()
   "Run actual subprocess discovery, framing, correlation, failures and cancellation."
-  (let* ((root (asdf:system-source-directory "image-daemon"))
+  (let* ((root         (asdf:system-source-directory "image-daemon"))
          (setup-symbol (find-symbol "*QUICKLISP-HOME*" "QL-SETUP"))
-         (setup (and setup-symbol (merge-pathnames "setup.lisp" (symbol-value setup-symbol))))
-         (directory (merge-pathnames (format nil "daemon-messages-~A/" (image-daemon:daemon-random-nonce))
-                                    (uiop:temporary-directory)))
+         (setup        (and setup-symbol (merge-pathnames "setup.lisp" (symbol-value setup-symbol))))
+         (directory    (merge-pathnames (format nil "daemon-messages-~A/" (image-daemon:daemon-random-nonce))
+                                       (uiop:temporary-directory)))
          (process nil) (record nil))
     (unless (and setup (probe-file setup)) (error "Message subprocess tests require Quicklisp setup."))
     (ensure-directories-exist directory)
@@ -83,7 +89,7 @@
              (check (< (- (get-internal-real-time) start) internal-time-units-per-second)))
            (failure ':payload-limit
                     (lambda () (image-daemon:daemon-message-call record :action ':echo :id "large" :sender "a" :receiver "b"
-                                                                :payload (make-string 10000 :initial-element #\x)
+                                                                :payload         (make-string 10000 :initial-element #\x)
                                                                 :character-limit 1024)))
            (let ((bad (copy-list record)))
              (setf (getf (rest bad) :token) "wrong")
@@ -101,8 +107,8 @@
   "Bound admitted connections before frame parsing and stop blocked clients."
   (let ((runtime (image-daemon:daemon-message-endpoint-create :publish-p nil :client-limit 1
                                                              :request-timeout 2
-                                                             :dispatcher (lambda (envelope &key cancelled-p)
-                                                                           (declare (ignore cancelled-p)) envelope)))
+                                                             :dispatcher      (lambda (envelope &key cancelled-p)
+                                                                                (declare (ignore cancelled-p)) envelope)))
         (socket nil) (stream nil))
     (unwind-protect
          (progn
@@ -134,12 +140,12 @@
            (image-daemon:daemon-runtime-set-timer
             runtime :next-deadline-function (lambda (runtime) (declare (ignore runtime))
                                               (bordeaux-threads:with-lock-held (lock) next))
-            :wake-function (lambda (runtime)
-                             (let ((notified (image-daemon:daemon-runtime-notify runtime)))
-                               (bordeaux-threads:with-lock-held (lock)
-                                 (setf next nil thread (bordeaux-threads:current-thread)
-                                       callback-notified notified)
-                                 (incf wakes)))))
+            :wake-function                  (lambda (runtime)
+                                              (let ((notified (image-daemon:daemon-runtime-notify runtime)))
+                                                (bordeaux-threads:with-lock-held (lock)
+                                                  (setf next nil thread (bordeaux-threads:current-thread)
+                                                        callback-notified notified)
+                                                  (incf wakes)))))
            (check (null (image-daemon:daemon-runtime-notify runtime)))
            (image-daemon:daemon-runtime-start runtime)
            (bordeaux-threads:with-lock-held (lock) (setf next (+ 10 (get-universal-time))))

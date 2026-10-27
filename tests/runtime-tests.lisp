@@ -12,7 +12,7 @@
 
 (defmethod daemon-runtime-request-valid-p ((runtime hooked-runtime) request)
   (daemon-request-valid-p request (daemon-runtime-token runtime)
-                          :request-tag ':custom-request
+                          :request-tag      ':custom-request
                           :protocol-version nil))
 
 (defmethod daemon-runtime-error-response ((runtime hooked-runtime) condition)
@@ -21,9 +21,9 @@
 
 (defun test-registry ()
   "Exercise ownership, malformed records, reconciliation and compare-and-delete."
-  (let* ((root (merge-pathnames (format nil "daemon-registry-~A/" (daemon-random-nonce))
-                                (uiop:temporary-directory)))
-         (path (daemon-registry-pathname root "session"))
+  (let* ((root   (merge-pathnames (format nil "daemon-registry-~A/" (daemon-random-nonce))
+                                  (uiop:temporary-directory)))
+         (path   (daemon-registry-pathname root "session"))
          (record (daemon-registry-record :identifier "session" :token "capability"
                                          :port 12345 :created-at 1)))
     (unwind-protect
@@ -97,15 +97,15 @@
 
 (defun test-registry-locking ()
   "Ensure registry readers and writers wait for the per-directory lock."
-  (let* ((root (merge-pathnames (format nil "daemon-registry-lock-~A/"
-                                        (daemon-random-nonce))
-                                (uiop:temporary-directory)))
-         (path (daemon-registry-pathname root "session"))
+  (let* ((root   (merge-pathnames (format nil "daemon-registry-lock-~A/"
+                                          (daemon-random-nonce))
+                                  (uiop:temporary-directory)))
+         (path   (daemon-registry-pathname root "session"))
          (record (daemon-registry-record :identifier "session" :token "capability"
                                          :port 12345 :created-at 1)))
     (labels ((check-blocked (operation)
                (let ((complete (sb-thread:make-semaphore :count 0))
-                     (thread nil))
+                     (thread   nil))
                  (unwind-protect
                       (progn
                         (daemon-registry-call-with-lock
@@ -136,11 +136,11 @@
   (let* ((root
           (merge-pathnames (format nil "daemon-runtime-~A/" (daemon-random-nonce))
                            (uiop/stream:temporary-directory)))
-         (first nil)
-         (next nil)
-         (blocked nil)
+         (first          nil)
+         (next           nil)
+         (blocked        nil)
          (blocked-stream nil)
-         (threads nil))
+         (threads        nil))
     (flet ((respond (runtime request &key socket stream)
              (declare (ignore runtime socket))
              (daemon-write-packet stream
@@ -200,13 +200,14 @@
 (defun test-runtime-ephemeral-and-hooks ()
   "Exercise unpublished lifecycle and customizable protocol hooks."
   (let ((runtime nil)
-        (root (merge-pathnames (format nil "daemon-ephemeral-~A/" (daemon-random-nonce))
-                               (uiop/stream:temporary-directory))))
+        (root    (merge-pathnames (format nil "daemon-ephemeral-~A/" (daemon-random-nonce))
+                                  (uiop/stream:temporary-directory))))
     (labels ((respond (runtime request &key socket stream)
                (declare (ignore runtime socket))
                (if (eq (getf (rest request) :operation) ':explode)
                    (daemon-fail :message "dispatch failed" :operation ':dispatch)
                    (daemon-write-packet stream '(:ok :hook t))))
+
              (call (request)
                (multiple-value-bind (socket stream)
                    (daemon-connect (daemon-runtime-port runtime))
@@ -252,25 +253,25 @@
                      '(:custom-request :version 999 :token "capability"
                        :operation :status)
                      "capability" :request-tag ':custom-request
-                     :protocol-version nil)
+                     :protocol-version         nil)
                     "NIL protocol version skips only version validation")
              (check (not (daemon-request-valid-p
                           '(:custom-request :version 999 :token "wrong"
                             :operation :status)
                           "capability" :request-tag ':custom-request
-                          :protocol-version nil))
+                          :protocol-version         nil))
                     "versionless validation still checks the capability")
              (check (not (daemon-request-valid-p
                           '(:custom-request :version 999 :token "capability")
                           "capability" :request-tag ':custom-request
-                          :protocol-version nil))
+                          :protocol-version         nil))
                     "versionless validation still checks the operation")
              (daemon-runtime-stop runtime)
              (setf runtime nil)
              (check (not (probe-file root))
                     "stopping an ephemeral runtime does not create a registry directory"))
         (when runtime (daemon-runtime-stop runtime))
-        (uiop/filesystem:delete-directory-tree root :validate t
+        (uiop/filesystem:delete-directory-tree root :validate     t
                                                :if-does-not-exist ':ignore)))))
 
 (defun test-runtime-ephemeral-failures ()
@@ -285,6 +286,7 @@
                       (error "An ephemeral runtime accessed the registry."))
                     (lambda () (without-registry (rest names) function)))
                    (funcall function)))
+
              (respond (runtime request &key socket stream)
                (declare (ignore runtime request socket stream))))
       (without-registry
@@ -293,7 +295,7 @@
        (lambda ()
          (unwind-protect
               (progn
-                (setf runtime (daemon-runtime-create :publish-p nil
+                (setf runtime (daemon-runtime-create :publish-p        nil
                                                      :request-function #'respond))
                 (call-with-replacement
                  'bordeaux-threads:make-thread
@@ -306,20 +308,20 @@
                             (daemon-runtime-listener runtime))
                        "failed startup retains the listener for explicit cleanup")
                 (daemon-runtime-stop runtime)
-                (setf runtime (daemon-runtime-create :publish-p nil
+                (setf runtime (daemon-runtime-create :publish-p        nil
                                                      :request-function #'respond))
                 (daemon-runtime-start runtime)
-                (let ((listener (daemon-runtime-listener runtime))
-                      (server (daemon-runtime-server-thread runtime))
+                (let ((listener    (daemon-runtime-listener runtime))
+                      (server      (daemon-runtime-server-thread runtime))
                       (stop-thread (symbol-function 'daemon-stop-thread))
-                      (fail-p t))
+                      (fail-p      t))
                   (call-with-replacement
                    'daemon-stop-thread
                    (lambda (thread)
                      (if fail-p
                          (progn
                            (setf fail-p nil)
-                           (daemon-fail :message "Injected reap failure."
+                           (daemon-fail :message   "Injected reap failure."
                                         :operation ':stop-thread))
                          (funcall stop-thread thread)))
                    (lambda ()
@@ -338,9 +340,9 @@
 
 (defun test-runtime-start-rollback ()
   "Exercise publication rollback when server startup fails."
-  (let* ((root (merge-pathnames (format nil "daemon-rollback-~A/" (daemon-random-nonce))
-                                (uiop/stream:temporary-directory)))
-         (runtime nil)
+  (let* ((root     (merge-pathnames (format nil "daemon-rollback-~A/" (daemon-random-nonce))
+                                    (uiop/stream:temporary-directory)))
+         (runtime  nil)
          (failed-p nil))
     (unwind-protect
          (progn
@@ -364,18 +366,18 @@
                               (daemon-runtime-registry-pathname runtime))))
                   "failed startup rolls back its registry publication"))
       (when runtime (daemon-runtime-stop runtime))
-      (uiop/filesystem:delete-directory-tree root :validate t
+      (uiop/filesystem:delete-directory-tree root :validate     t
                                              :if-does-not-exist ':ignore))))
 
 (defun test-relay-authority ()
   "Exercise exclusive control, observer rejection and takeover authority."
-  (let ((relay (relay-create))
+  (let ((relay      (relay-create))
         (controller (make-instance 'attachment :socket nil :stream (make-broadcast-stream)
                                               :mode ':control))
-        (observer (make-instance 'attachment :socket nil :stream (make-broadcast-stream)
-                                            :mode ':read-only))
-        (next (make-instance 'attachment :socket nil :stream (make-broadcast-stream)
-                                        :mode ':take-over)))
+        (observer   (make-instance 'attachment :socket nil :stream (make-broadcast-stream)
+                                              :mode ':read-only))
+        (next       (make-instance 'attachment :socket nil :stream (make-broadcast-stream)
+                                              :mode ':take-over)))
     (unwind-protect
          (progn
            (transport-start relay)
@@ -397,16 +399,15 @@
       (transport-stop relay)
       (mapc #'attachment-close (list controller observer next)))))
 
-
 (defun test-runtime-attachment-cleanup ()
   "Exercise detach cleanup followed immediately by another authenticated request."
-  (let* ((root (merge-pathnames (format nil "daemon-cleanup-~A/" (daemon-random-nonce))
-                                (uiop:temporary-directory)))
-         (runtime nil)
+  (let* ((root           (merge-pathnames (format nil "daemon-cleanup-~A/" (daemon-random-nonce))
+                                          (uiop:temporary-directory)))
+         (runtime        nil)
          (retired-socket nil)
          (retired-stream nil)
          (late-shutdowns 0)
-         (shutdown (symbol-function 'sb-bsd-sockets:socket-shutdown)))
+         (shutdown       (symbol-function 'sb-bsd-sockets:socket-shutdown)))
     (labels ((respond (runtime request &key socket stream)
                (declare (ignore runtime))
                (if (eq (getf (rest request) :operation) ':detach)
@@ -416,6 +417,7 @@
                       (make-instance 'attachment :socket socket :stream stream
                                                  :mode ':read-only)))
                    (daemon-write-packet stream '(:ok))))
+
              (shutdown-socket (socket &key direction)
                (if (and (eq socket retired-socket)
                         retired-stream (not (open-stream-p retired-stream)))
@@ -424,7 +426,7 @@
       (unwind-protect
            (progn
              (setf runtime (daemon-runtime-create :directory root :identifier "cleanup"
-                                                  :token "capability"
+                                                  :token            "capability"
                                                   :request-function #'respond))
              (daemon-runtime-start runtime)
              (call-with-replacement
@@ -447,5 +449,5 @@
                                                "capability" ':status)) ':ok)
                        "the next authenticated connection completes"))))
         (when runtime (daemon-runtime-stop runtime))
-        (uiop/filesystem:delete-directory-tree root :validate t
+        (uiop/filesystem:delete-directory-tree root :validate     t
                                                :if-does-not-exist ':ignore)))))

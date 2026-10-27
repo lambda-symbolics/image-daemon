@@ -2,9 +2,9 @@
 
 (defun call-with-blocked-thread-cleanup (function)
   "Call FUNCTION with a thread whose unwind cleanup awaits explicit release."
-  (let* ((started (sb-thread:make-semaphore :count 0))
+  (let* ((started         (sb-thread:make-semaphore :count 0))
          (cleanup-started (sb-thread:make-semaphore :count 0))
-         (release-body (sb-thread:make-semaphore :count 0))
+         (release-body    (sb-thread:make-semaphore :count 0))
          (release-cleanup (sb-thread:make-semaphore :count 0))
          (thread
            (sb-thread:make-thread
@@ -28,9 +28,9 @@
 
 (defun check-blocked-thread-stop (thread &key cleanup-started release-cleanup stop-function)
   "Require STOP-FUNCTION to report a bounded, recoverable thread-stop failure."
-  (let ((completed (sb-thread:make-semaphore :count 0))
-        (stopper nil)
-        (failure nil)
+  (let ((completed  (sb-thread:make-semaphore :count 0))
+        (stopper    nil)
+        (failure    nil)
         (returned-p nil))
     (unwind-protect
          (progn
@@ -62,13 +62,13 @@
   "Close every relay attachment and retain failed writer cleanup for retry."
   (call-with-blocked-thread-cleanup
    (lambda (thread cleanup-started release-cleanup)
-     (let* ((socket (make-instance 'sb-bsd-sockets:inet-socket
-                                  :type ':stream :protocol ':tcp))
-            (blocked (make-instance 'attachment :socket socket
-                                    :stream (make-broadcast-stream) :mode ':control))
+     (let* ((socket   (make-instance 'sb-bsd-sockets:inet-socket
+                                    :type ':stream :protocol ':tcp))
+            (blocked  (make-instance 'attachment :socket socket
+                                     :stream (make-broadcast-stream) :mode ':control))
             (observer (make-instance 'attachment :socket socket
                                      :stream (make-broadcast-stream) :mode ':read-only))
-            (relay (make-instance 'relay)))
+            (relay    (make-instance 'relay)))
        (unwind-protect
             (progn
               (transport-start relay)
@@ -97,13 +97,13 @@
   (dolist (owner '(:thread :attachment :runtime))
     (call-with-blocked-thread-cleanup
      (lambda (thread cleanup-started release-cleanup)
-       (let* ((socket (make-instance 'sb-bsd-sockets:inet-socket
-                                     :type ':stream :protocol ':tcp))
+       (let* ((socket     (make-instance 'sb-bsd-sockets:inet-socket
+                                         :type ':stream :protocol ':tcp))
               (attachment (make-instance 'attachment :socket socket
                                           :stream (make-broadcast-stream) :mode ':read-only))
-              (root (merge-pathnames (format nil "daemon-stop-~A/" (daemon-random-nonce))
-                                    (uiop:temporary-directory)))
-              (runtime nil))
+              (root       (merge-pathnames (format nil "daemon-stop-~A/" (daemon-random-nonce))
+                                          (uiop:temporary-directory)))
+              (runtime    nil))
          (unwind-protect
               (progn
                 (setf runtime
@@ -114,9 +114,12 @@
                       (daemon-runtime-client-threads runtime) (list thread))
                 (flet ((stop ()
                          (ecase owner
-                           (:thread (daemon-stop-thread thread))
-                           (:attachment (attachment-close attachment))
-                           (:runtime (daemon-runtime-stop runtime)))))
+                           (:thread
+                            (daemon-stop-thread thread))
+                           (:attachment
+                            (attachment-close attachment))
+                           (:runtime
+                            (daemon-runtime-stop runtime)))))
                   (check-blocked-thread-stop thread :cleanup-started cleanup-started
                                             :release-cleanup release-cleanup :stop-function #'stop)
                   (check (and (eq (attachment-writer-thread attachment) thread)

@@ -66,7 +66,6 @@
        (setf (attachment-stream-closed-p attachment) t))))
   nil)
 
-
 (defun attachment--writer-loop (attachment)
   "Write ATTACHMENT's queued packets until closure or transport failure."
   (block write-packets
@@ -100,9 +99,9 @@
   "Create a persistent attachment over SOCKET and STREAM with MODE."
   (let ((attachment (make-instance 'attachment :socket socket :stream stream :mode mode)))
     (setf (attachment-writer-thread attachment)
-            (bordeaux-threads:make-thread
-             (lambda () (attachment--writer-loop attachment)) :name
-             "Image daemonp attachment output"))
+          (bordeaux-threads:make-thread
+           (lambda () (attachment--writer-loop attachment)) :name
+           "Image daemonp attachment output"))
     attachment))
 
 (defun attachment-send (attachment packet)
@@ -178,7 +177,7 @@ deadline."
             relay-history :type structlisp:deque :documentation
             "Bounded terminal output chunks with maintained character size.")
            (history-position :initform 0 :accessor relay-history-position
-                             :type (integer 0)
+                             :type          (integer 0)
                              :documentation "Total output characters retained, including evicted history.")
            (wake-function :initform nil :accessor relay-wake-function :type
             (option function) :documentation
@@ -316,7 +315,12 @@ deadline."
       (if (structlisp:deque-empty-p (relay-input-events transport))
           (setf direct (relay-direct-terminal transport))
           (setf event (structlisp:deque-pop-front (relay-input-events transport)))))
-    (cond (event event) (direct (transport-read-event direct)) (t ':stream-end))))
+    (cond (event
+           event)
+          (direct
+           (transport-read-event direct))
+          (t
+           ':stream-end))))
 
 (defun relay-enqueue-event (transport attachment event)
   "Queue ATTACHMENT's controlling EVENT for TERMINAL."
@@ -343,9 +347,9 @@ deadline."
 
 (defun relay-attach (transport attachment &key rows columns styled-p session-id)
   "Attach ATTACHMENT after queueing its handshake and report direct release."
-  (let ((mode (attachment-mode attachment))
-        (old-controller nil)
-        (direct nil)
+  (let ((mode              (attachment-mode attachment))
+        (old-controller    nil)
+        (direct            nil)
         (released-direct-p nil))
     (bordeaux-threads:with-lock-held ((relay-lock transport))
       (when
@@ -370,13 +374,15 @@ deadline."
         (unless
             (attachment-send attachment
              (list :attached :mode mode :session-id session-id :history history
-                   :history-start (- (relay-history-position transport) (length history))
+                   :history-start    (- (relay-history-position transport) (length history))
                    :history-position (relay-history-position transport)
                    :rows next-rows :columns next-columns))
           (return-from relay-attach (values nil nil)))
         (ecase mode
-          (:read-only (pushnew attachment (relay-observers transport) :test #'eq))
-          (:control (setf (relay-controller transport) attachment))
+          (:read-only
+           (pushnew attachment (relay-observers transport) :test #'eq))
+          (:control
+           (setf (relay-controller transport) attachment))
           (:take-over
            (setf direct (relay-direct-terminal transport)
                  old-controller (relay-controller transport)
@@ -471,8 +477,12 @@ application."
 (defun relay-attachment-kind (transport)
   "Return TERMINAL's current ownership kind."
   (bordeaux-threads:with-lock-held ((relay-lock transport))
-    (cond ((relay-direct-terminal transport) ':foreground)
-          ((relay-controller transport) ':remote) (t ':detached))))
+    (cond ((relay-direct-terminal transport)
+           ':foreground)
+          ((relay-controller transport)
+           ':remote)
+          (t
+           ':detached))))
 
 (defun relay-create (&key direct-terminal (rows 24) (columns 80) interactive-p styled-p)
   "Create a relay independent of the host terminal implementation."

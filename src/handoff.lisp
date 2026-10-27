@@ -66,9 +66,9 @@ failed handoff can always find and stop everything the replacement started.")
 (defun handoff-ticket-sibling (pathname state)
   "Return the sibling of ticket PATHNAME that holds STATE."
   (unless (member state *handoff-ticket-states*)
-    (daemon-fail :message (format nil "Unknown handoff ticket state ~S." state)
+    (daemon-fail :message   (format nil "Unknown handoff ticket state ~S." state)
                  :operation ':handoff))
-  (make-pathname :name (format nil "~A-~(~A~)" (pathname-name pathname) state)
+  (make-pathname :name     (format nil "~A-~(~A~)" (pathname-name pathname) state)
                  :defaults pathname))
 
 (defun handoff-ticket-family (pathname)
@@ -139,7 +139,7 @@ handoff has renamed the ticket away."
 The pending or claimed record is renamed to the cancelled sibling and rewritten
 with :STATE :CANCELLED, so a replacement that later checks its claim sees the
 cancellation. One brief retry covers a claim racing the cancellation."
-  (let ((claimed (handoff-ticket-sibling pathname ':claimed))
+  (let ((claimed   (handoff-ticket-sibling pathname ':claimed))
         (cancelled (handoff-ticket-sibling pathname ':cancelled)))
     (flet ((cancel-from (source)
              (let ((record (and (probe-file source)
@@ -223,11 +223,11 @@ Hosts without POSIX job control signal DAEMON-ERROR."
                                        (namestring launcher-pid)
                                        (namestring gate))
                                  (rest arguments))
-                         :input nil
-                         :output output
+                         :input        nil
+                         :output       output
                          :error-output :output
-                         :directory directory
-                         :wait nil)))
+                         :directory    directory
+                         :wait         nil)))
 
 
 ;;;; -- Replacement Readiness --

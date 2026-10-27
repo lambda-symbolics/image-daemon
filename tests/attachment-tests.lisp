@@ -20,13 +20,13 @@
   (let* ((transport (relay-create))
          (socket
           (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
-         (stream (make-string-output-stream))
+         (stream    (make-string-output-stream))
          (attachment
           (make-instance 'attachment :socket socket :stream stream :mode ':read-only)))
     (unwind-protect
         (let ((*relay-output-chunk-character-limit* 4)
-              (*relay-history-character-limit* 5)
-              (text (format nil "abcdefghij~%")))
+              (*relay-history-character-limit*      5)
+              (text                                 (format nil "abcdefghij~%")))
           (check
            (relay-attach transport attachment :rows 24 :columns 80 :styled-p nil
             :session-id "ORDER")
@@ -43,7 +43,7 @@
                    (lambda (frame) (daemon-read-packet (make-string-input-stream frame)))
                    frames))
                  (handshake (first packets))
-                 (output (apply #'concatenate 'string (mapcar #'second (rest packets)))))
+                 (output    (apply #'concatenate 'string (mapcar #'second (rest packets)))))
             (check
              (and (= (length frames) 4) (eq (first handshake) ':attached)
                   (string= (getf (rest handshake) :session-id) "ORDER")
@@ -59,8 +59,8 @@
           (relay-detach transport attachment)
           (relay-attach transport attachment :rows 24 :columns 80 :styled-p nil
                         :session-id "ORDER")
-          (let* ((frame (bordeaux-threads:with-lock-held ((attachment-lock attachment))
-                          (structlisp:deque-pop-front (attachment-queue attachment))))
+          (let* ((frame  (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+                           (structlisp:deque-pop-front (attachment-queue attachment))))
                  (packet (daemon-read-packet (make-string-input-stream frame))))
             (check (and (= (getf (rest packet) :history-start) (- (length text) 5))
                         (= (getf (rest packet) :history-position) (length text))
@@ -105,7 +105,7 @@
   "Append OPERATION to STREAM's synchronized transport log."
   (bordeaux-threads:with-lock-held ((test-localgroup-close-stream-lock stream))
     (setf (test-localgroup-close-stream-operations stream)
-            (append (test-localgroup-close-stream-operations stream) (list operation))))
+          (append (test-localgroup-close-stream-operations stream) (list operation))))
   nil)
 
 (defun test-localgroup-close-stream-operation-snapshot (stream)
@@ -179,12 +179,12 @@
           (equal (test-localgroup-close-stream-operation-snapshot stream)
                  '((:shutdown :io) (:close t)))
           "explicit attachment close shuts down socket I/O before abortive close"))))
-    (let* ((stream (make-instance 'test-localgroup-close-stream :stall-writes-p t))
-           (socket (make-instance 'test-localgroup-socket :stream stream))
+    (let* ((stream    (make-instance 'test-localgroup-close-stream :stall-writes-p t))
+           (socket    (make-instance 'test-localgroup-socket :stream stream))
            (attachment
             (make-instance 'attachment :socket socket :stream stream :mode ':read-only))
            (transport (relay-create))
-           (writer nil))
+           (writer    nil))
       (setf (relay-observers transport) (list attachment))
       (unwind-protect
           (call-with-replacements
@@ -220,7 +220,7 @@
                2)
               "the disconnected attachment writer closes its stream promptly")
              (daemon-stop-thread writer)
-             (let* ((operations (test-localgroup-close-stream-operation-snapshot stream))
+             (let* ((operations     (test-localgroup-close-stream-operation-snapshot stream))
                     (close-position (position ':close operations :key #'first)))
                (check
                 (and (= 1 (count ':shutdown operations :key #'first))
@@ -243,8 +243,8 @@
 
 (defclass test-attachment-duplex-stream
     (test-localgroup-close-stream sb-gray:fundamental-character-input-stream)
-  ((read-started :initform (sb-thread:make-semaphore :count 0)
-                 :reader test-attachment-duplex-read-started
+  ((read-started :initform      (sb-thread:make-semaphore :count 0)
+                 :reader        test-attachment-duplex-read-started
                  :documentation "Signals entry into the receiver's blocking read.")
    (reader-thread :initform nil :accessor test-attachment-duplex-reader-thread
                   :documentation "The receiver retained for fixture cleanup."))
@@ -261,11 +261,11 @@
 
 (defun test-attachment-client-blocked-detach ()
   "Require local exit to close a transport even when a detach write would block."
-  (let* ((stream (make-instance 'test-attachment-duplex-stream :stall-writes-p t))
-         (completed (sb-thread:make-semaphore :count 0))
-         (client nil)
-         (failure nil)
-         (returned-p nil)
+  (let* ((stream            (make-instance 'test-attachment-duplex-stream :stall-writes-p t))
+         (completed         (sb-thread:make-semaphore :count 0))
+         (client            nil)
+         (failure           nil)
+         (returned-p        nil)
          (receiver-reaped-p nil))
     (flet ((shutdown ()
              (test-localgroup-close-stream--record stream '(:shutdown :io))
@@ -277,7 +277,7 @@
                     (lambda ()
                       (handler-case
                           (daemon-attach-client-run
-                           stream :mode ':control
+                           stream :mode         ':control
                            :input-ready-function
                            (lambda ()
                              (unless (sb-thread:wait-on-semaphore
@@ -285,7 +285,7 @@
                                (error "Attachment receiver did not start."))
                              t)
                            :read-event-function (lambda () :stream-end)
-                           :close-function #'shutdown)
+                           :close-function      #'shutdown)
                         (error (condition) (setf failure condition)))
                       (sb-thread:signal-semaphore completed))
                     :name "Blocked attachment detach test"))
@@ -307,17 +307,19 @@
   (labels ((attachment (mode)
              (make-instance 'attachment :socket nil :stream (make-broadcast-stream) :mode
                             mode))
+
            (attach (transport client)
              (multiple-value-bind (attached-p released-p)
                  (relay-attach transport client :rows 24 :columns 80 :styled-p nil
                   :session-id "read-test")
                (declare (ignore released-p))
                (check attached-p "the relay accepts its test controller")))
+
            (run-ending-transition (transition)
              (let* ((transport (relay-create))
-                    (client (attachment ':control))
-                    (result ':pending)
-                    (reader nil))
+                    (client    (attachment ':control))
+                    (result    ':pending)
+                    (reader    nil))
                (transport-start transport)
                (attach transport client)
                (unwind-protect
@@ -331,11 +333,13 @@
                      (and (eq result ':pending) (bordeaux-threads:thread-alive-p reader))
                      "the relay read blocks before ownership changes")
                     (ecase transition
-                      (:stop (transport-stop transport))
+                      (:stop
+                       (transport-stop transport))
                       (:detach
                        (check (relay-detach transport client)
                         "detaching reports released control"))
-                      (:release (relay-release-control transport)))
+                      (:release
+                       (relay-release-control transport)))
                     (check (wait-until (lambda () (not (eq result ':pending))) 2)
                      "an ending ownership transition wakes the relay read")
                     (check (eq result ':stream-end)
@@ -344,11 +348,11 @@
                  (attachment-close client)
                  (when reader (bordeaux-threads:join-thread reader))))))
     (dolist (transition '(:stop :detach :release)) (run-ending-transition transition))
-    (let* ((transport (relay-create))
+    (let* ((transport    (relay-create))
            (first-client (attachment ':control))
-           (next-client (attachment ':take-over))
-           (result ':pending)
-           (reader nil))
+           (next-client  (attachment ':take-over))
+           (result       ':pending)
+           (reader       nil))
       (transport-start transport)
       (attach transport first-client)
       (unwind-protect
@@ -376,15 +380,15 @@
 
 (defun test-relay-finish-exit ()
   "Require RELAY-FINISH to deliver queued output and then the exit to a real client."
-  (let ((listener (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
-        (transport (relay-create))
-        (output (make-string-output-stream))
+  (let ((listener      (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
+        (transport     (relay-create))
+        (output        (make-string-output-stream))
         (client-socket nil)
         (client-stream nil)
         (server-socket nil)
-        (attachment nil)
-        (client nil)
-        (result nil))
+        (attachment    nil)
+        (client        nil)
+        (result        nil))
     (unwind-protect
          (progn
            (setf (sb-bsd-sockets:sockopt-reuse-address listener) t)
@@ -404,11 +408,11 @@
                   (lambda ()
                     (setf result
                           (daemon-attach-client-run client-stream
-                                                    :socket client-socket
-                                                    :mode ':control
+                                                    :socket               client-socket
+                                                    :mode                 ':control
                                                     :input-ready-function (lambda () nil)
-                                                    :read-event-function (lambda () nil)
-                                                    :output-stream output)))
+                                                    :read-event-function  (lambda () nil)
+                                                    :output-stream        output)))
                   :name "Relay finish client"))
            (transport-write transport "goodbye")
            (check (handler-case
@@ -433,25 +437,24 @@
       (when client-socket (ignore-errors (sb-bsd-sockets:socket-close client-socket)))
       (ignore-errors (sb-bsd-sockets:socket-close listener)))))
 
-
 (defun test-attachment-host-packets ()
   "Test host packet delivery and receiver-driven attachment termination."
   (dolist (stop-p '(nil t))
-    (let* ((wire (with-output-to-string (stream)
-                   (daemon-write-packet stream '(:output "before"))
-                   (daemon-write-packet stream '(:host-end :id "G1"))
-                   (daemon-write-packet stream '(:output "after"))))
-           (stream (make-string-input-stream wire))
-           (output (make-string-output-stream))
+    (let* ((wire     (with-output-to-string (stream)
+                       (daemon-write-packet stream '(:output "before"))
+                       (daemon-write-packet stream '(:host-end :id "G1"))
+                       (daemon-write-packet stream '(:output "after"))))
+           (stream   (make-string-input-stream wire))
+           (output   (make-string-output-stream))
            (received nil))
       (check
        (null (daemon-attach-client-run
-              stream :mode ':control
+              stream :mode          ':control
               :input-ready-function (lambda () nil)
-              :read-event-function (lambda () nil)
-              :close-function (lambda () (close stream))
-              :output-stream output
-              :packet-function (lambda (packet) (setf received packet) stop-p)))
+              :read-event-function  (lambda () nil)
+              :close-function       (lambda () (close stream))
+              :output-stream        output
+              :packet-function      (lambda (packet) (setf received packet) stop-p)))
        "a host control packet does not invent an application exit")
       (check (equal received '(:host-end :id "G1")) "the host receives the complete packet")
       (check (string= (get-output-stream-string output)

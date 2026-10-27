@@ -45,8 +45,8 @@
                 (null (daemon-read-packet input)))
            "length-prefixed frames preserve multiline Unicode packets"))
   (let* ((evaluated-p nil)
-         (payload "#.(setf evaluated-p t)")
-         (wire (format nil "~D~%~A" (length payload) payload)))
+         (payload     "#.(setf evaluated-p t)")
+         (wire        (format nil "~D~%~A" (length payload) payload)))
     (declare (special evaluated-p))
     (expect-failure
      (lambda ()
@@ -80,7 +80,7 @@
 (defun test-identifiers ()
   "Test canonical identifiers, legacy identifiers, and rejection."
   (let* ((canonical (session-identifier-normalize "z5tRZJx"))
-         (display (session-identifier-display canonical)))
+         (display   (session-identifier-display canonical)))
     (check (string= (session-identifier-normalize display) canonical)
            "display forms normalize back to canonical identifiers"))
   (check (string= (session-identifier-normalize "ABCDEF012345")
@@ -116,11 +116,11 @@
              (setf input
                    (sb-sys:make-fd-stream
                     read-descriptor
-                    :input t
-                    :element-type 'character
+                    :input           t
+                    :element-type    'character
                     :external-format ':utf-8
-                    :buffering ':none
-                    :auto-close nil))
+                    :buffering       ':none
+                    :auto-close      nil))
              (let ((*daemon-connect-timeout-seconds* 0.05))
                (handler-case
                    (progn

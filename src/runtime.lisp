@@ -56,8 +56,8 @@
 (defun daemon-runtime-record (runtime)
   "Return RUNTIME's current private discovery record."
   (daemon-registry-record :identifier (daemon-runtime-identifier runtime)
-                          :token (daemon-runtime-token runtime)
-                          :port (daemon-runtime-port runtime)
+                          :token      (daemon-runtime-token runtime)
+                          :port       (daemon-runtime-port runtime)
                           :created-at (daemon-runtime-created-at runtime)))
 
 (defun daemon-request-valid-p (request token &key
@@ -88,11 +88,11 @@ start until DAEMON-RUNTIME-START."
                (or (not publish-p)
                    (and directory (uiop:directory-pathname-p directory)
                         identifier)))
-    (daemon-fail :message "A published endpoint requires an explicit directory and identifier, and a request callback."
+    (daemon-fail :message   "A published endpoint requires an explicit directory and identifier, and a request callback."
                  :operation ':create))
   (when publish-p
     (daemon-registry-reconcile directory))
-  (let ((listener (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
+  (let ((listener    (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
         (completed-p nil))
     (unwind-protect
          (progn
@@ -105,11 +105,11 @@ start until DAEMON-RUNTIME-START."
              (prog1
                  (apply #'make-instance class
                         :identifier identifier :publish-p publish-p
-                        :token (or token (daemon-random-token))
+                        :token             (or token (daemon-random-token))
                         :listener listener :port port
                         :registry-pathname (and publish-p
                                                 (daemon-registry-pathname directory identifier))
-                        :created-at (or created-at (get-universal-time))
+                        :created-at        (or created-at (get-universal-time))
                         :request-function request-function :error-function error-function
                         initargs)
                (setf completed-p t))))
@@ -132,7 +132,7 @@ start until DAEMON-RUNTIME-START."
 
 (defun daemon-runtime--handle-client (runtime socket)
   "Read one authenticated request, then close and unregister SOCKET on every exit."
-  (let ((stream nil)
+  (let ((stream                         nil)
         (*daemon-client-transport-lock* (daemon-runtime-lock runtime)))
     (unwind-protect
          (handler-case
@@ -141,7 +141,7 @@ start until DAEMON-RUNTIME-START."
                  (setf stream (daemon-socket-stream socket)))
                (let ((request (daemon-runtime-read-request runtime stream)))
                  (unless (daemon-runtime-request-valid-p runtime request)
-                   (daemon-fail :message "The localgroup request was rejected."
+                   (daemon-fail :message   "The localgroup request was rejected."
                                 :operation ':request))
                  (if (eq (getf (rest request) :operation) ':runtime-notify)
                      (daemon-write-packet stream '(:runtime-notified))
@@ -159,8 +159,7 @@ start until DAEMON-RUNTIME-START."
         (setf (daemon-runtime-client-threads runtime)
               (delete (bordeaux-threads:current-thread) (daemon-runtime-client-threads runtime))
               (daemon-runtime-client-sockets runtime)
-              (delete socket (daemon-runtime-client-sockets runtime))))))
-)
+              (delete socket (daemon-runtime-client-sockets runtime)))))))
 
 (defun daemon-runtime-notify (runtime)
   "Wake RUNTIME after changing a host deadline, using its authenticated listener.
@@ -185,7 +184,7 @@ Call DAEMON-RUNTIME-NOTIFY after later host deadline changes. Configure before
 start or update live; notification wakes a blocked listener after publication."
   (unless (or (and (null next-deadline-function) (null wake-function))
               (and (functionp next-deadline-function) (functionp wake-function)))
-    (daemon-fail :message "Timer callbacks must be a pair of functions or NIL."
+    (daemon-fail :message   "Timer callbacks must be a pair of functions or NIL."
                  :operation ':timer))
   (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
     (setf (daemon-runtime--next-deadline-function runtime) next-deadline-function
@@ -201,14 +200,14 @@ start or update live; notification wakes a blocked listener after publication."
                 (daemon-runtime--wake-function runtime)))
     (let ((deadline (and next-function (funcall next-function runtime))))
       (unless (typep deadline '(or null (integer 0 *)))
-        (daemon-fail :message "A timer deadline must be a universal-time integer or NIL."
+        (daemon-fail :message   "A timer deadline must be a universal-time integer or NIL."
                      :operation ':timer))
       (if (and deadline (<= deadline (get-universal-time)))
           (progn
             (funcall wake-function runtime)
             (let ((next (funcall next-function runtime)))
               (unless (or (null next) (and (integerp next) (> next (get-universal-time))))
-                (daemon-fail :message "A timer callback did not advance its due deadline."
+                (daemon-fail :message   "A timer callback did not advance its due deadline."
                              :operation ':timer)))
             nil)
           (sb-sys:wait-until-fd-usable

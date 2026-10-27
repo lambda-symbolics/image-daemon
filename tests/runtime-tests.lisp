@@ -1,5 +1,6 @@
 (in-package #:image-daemon/tests)
 
+(-> call-with-replacement (symbol function function) *)
 (defun call-with-replacement (name replacement function)
   "Call FUNCTION with NAME temporarily replaced, restoring it on every exit."
   (let ((original (symbol-function name)))
@@ -22,6 +23,7 @@
   (declare (ignore runtime condition))
   '(:hook-error :seen t))
 
+(-> test-registry () t)
 (defun test-registry ()
   "Exercise ownership, malformed records, reconciliation and compare-and-delete."
   (let* ((root   (merge-pathnames (format nil "daemon-registry-~A/" (daemon-random-nonce))
@@ -98,6 +100,7 @@
            (check (null (daemon-registry-read path)) "dead endpoint removed"))
       (uiop:delete-directory-tree root :validate t :if-does-not-exist ':ignore))))
 
+(-> test-registry-locking () t)
 (defun test-registry-locking ()
   "Ensure registry readers and writers wait for the per-directory lock."
   (let* ((root   (merge-pathnames (format nil "daemon-registry-lock-~A/"
@@ -134,6 +137,7 @@
                     "writer publishes after lock release"))
         (uiop:delete-directory-tree root :validate t :if-does-not-exist ':ignore)))))
 
+(-> test-runtime-lifecycle () t)
 (defun test-runtime-lifecycle ()
   "Exercise authentication, successor ownership and blocked request shutdown."
   (let* ((root
@@ -200,6 +204,7 @@
         (uiop/filesystem:delete-directory-tree root :validate t :if-does-not-exist
                                                ':ignore)))))
 
+(-> test-runtime-ephemeral-and-hooks () t)
 (defun test-runtime-ephemeral-and-hooks ()
   "Exercise unpublished lifecycle and customizable protocol hooks."
   (let ((runtime nil)
@@ -277,6 +282,7 @@
         (uiop/filesystem:delete-directory-tree root :validate     t
                                                :if-does-not-exist ':ignore)))))
 
+(-> test-runtime-ephemeral-failures () t)
 (defun test-runtime-ephemeral-failures ()
   "Exercise registry-free startup failure and retryable stop ownership."
   (let ((runtime nil))
@@ -341,6 +347,7 @@
            (when runtime
              (daemon-runtime-stop runtime))))))))
 
+(-> test-runtime-start-rollback () t)
 (defun test-runtime-start-rollback ()
   "Exercise publication rollback when server startup fails."
   (let* ((root     (merge-pathnames (format nil "daemon-rollback-~A/" (daemon-random-nonce))
@@ -372,6 +379,7 @@
       (uiop/filesystem:delete-directory-tree root :validate     t
                                              :if-does-not-exist ':ignore))))
 
+(-> test-relay-authority () t)
 (defun test-relay-authority ()
   "Exercise exclusive control, observer rejection and takeover authority."
   (let ((relay      (relay-create))
@@ -402,6 +410,7 @@
       (transport-stop relay)
       (mapc #'attachment-close (list controller observer next)))))
 
+(-> test-runtime-attachment-cleanup () t)
 (defun test-runtime-attachment-cleanup ()
   "Exercise detach cleanup followed immediately by another authenticated request."
   (let* ((root           (merge-pathnames (format nil "daemon-cleanup-~A/" (daemon-random-nonce))

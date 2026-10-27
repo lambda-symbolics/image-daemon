@@ -1,13 +1,16 @@
 (in-package #:image-daemon/tests)
 
+(-> handoff-tests--record (keyword t) list)
 (defun handoff-tests--record (state token)
   "Return a host handoff record in STATE carrying TOKEN."
   (list :test-handoff :state state :token token :replacement-pid nil))
 
+(-> handoff-tests--valid-p (t) boolean)
 (defun handoff-tests--valid-p (record)
   "Accept only test handoff records."
   (and (consp record) (eq (first record) :test-handoff)))
 
+(-> test-handoff-tickets () t)
 (defun test-handoff-tickets ()
   "Exercise ticket claim, ownership, cancellation and cleanup."
   (let* ((root   (merge-pathnames (format nil "daemon-handoff-~A/" (daemon-random-nonce))
@@ -53,6 +56,7 @@
                   "deleting a ticket removes its whole family"))
       (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore))))
 
+(-> test-handoff-supervised-launch () t)
 (defun test-handoff-supervised-launch ()
   "Exercise the gated supervisor recording its launcher's process group."
   (let* ((root   (merge-pathnames (format nil "daemon-supervisor-~A/" (daemon-random-nonce))
@@ -75,6 +79,7 @@
                     "the start gate is removed")))
       (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore))))
 
+(-> test-handoff-endpoint-readiness () t)
 (defun test-handoff-endpoint-readiness ()
   "Exercise authenticated readiness of a replacement endpoint."
   (let* ((root    (merge-pathnames (format nil "daemon-ready-~A/" (daemon-random-nonce))

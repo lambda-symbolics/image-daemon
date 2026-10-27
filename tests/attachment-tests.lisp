@@ -1,5 +1,6 @@
 (in-package #:image-daemon/tests)
 
+(-> wait-until (function real) boolean)
 (defun wait-until (predicate timeout)
   "Wait boundedly for PREDICATE."
   (loop with deadline = (+ (get-internal-real-time)
@@ -8,6 +9,7 @@
         when (> (get-internal-real-time) deadline) return nil
         do (sleep 0.005)))
 
+(-> call-with-replacements (list function) *)
 (defun call-with-replacements (replacements function)
   "Run FUNCTION with bounded, serial function replacements."
   (if (null replacements)
@@ -15,6 +17,7 @@
       (call-with-replacement (first (first replacements)) (second (first replacements))
                              (lambda () (call-with-replacements (rest replacements) function)))))
 
+(-> test-replay () t)
 (defun test-replay ()
   "Exercise handshake order, bounded replay and queue overflow."
   (let* ((transport (relay-create))
@@ -101,6 +104,7 @@
           (:documentation
            "A socket double recording shutdown against its paired stream."))
 
+(-> test-localgroup-close-stream--record (test-localgroup-close-stream t) null)
 (defun test-localgroup-close-stream--record (stream operation)
   "Append OPERATION to STREAM's synchronized transport log."
   (bordeaux-threads:with-lock-held ((test-localgroup-close-stream-lock stream))
@@ -108,6 +112,7 @@
           (append (test-localgroup-close-stream-operations stream) (list operation))))
   nil)
 
+(-> test-localgroup-close-stream-operation-snapshot (test-localgroup-close-stream) list)
 (defun test-localgroup-close-stream-operation-snapshot (stream)
   "Return a synchronized copy of STREAM's transport operations."
   (bordeaux-threads:with-lock-held ((test-localgroup-close-stream-lock stream))
@@ -141,6 +146,7 @@
   (unless abort (loop (sleep 60)))
   t)
 
+(-> test-localgroup--bounded-call (function) (values boolean t))
 (defun test-localgroup--bounded-call (function)
   "Call FUNCTION in a thread and report prompt return plus any failure."
   (let ((completed-p nil) (failure nil) (thread nil))
@@ -157,6 +163,7 @@
            (values returned-p failure)))
       (daemon-stop-thread thread))))
 
+(-> test-localgroup-attachment-close-safety () t)
 (defun test-localgroup-attachment-close-safety ()
   "Test overflow and explicit close use shutdown followed by abortive stream close."
   (flet ((shutdown-socket (socket &key direction)
@@ -259,6 +266,7 @@
         do (sleep 0.001))
   :eof)
 
+(-> test-attachment-client-blocked-detach () t)
 (defun test-attachment-client-blocked-detach ()
   "Require local exit to close a transport even when a detach write would block."
   (let* ((stream            (make-instance 'test-attachment-duplex-stream :stall-writes-p t))
@@ -302,6 +310,7 @@
              "local stream end closes the attachment without a blocking detach write")
       (check receiver-reaped-p "attachment exit reaps the receiver before returning"))))
 
+(-> test-localgroup-blocking-read-lifecycle () t)
 (defun test-localgroup-blocking-read-lifecycle ()
   "Test relay ownership transitions wake or preserve a blocking semantic read."
   (labels ((attachment (mode)
@@ -378,6 +387,7 @@
         (when reader (bordeaux-threads:join-thread reader)))))
   nil)
 
+(-> test-relay-finish-exit () t)
 (defun test-relay-finish-exit ()
   "Require RELAY-FINISH to deliver queued output and then the exit to a real client."
   (let ((listener      (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
@@ -437,6 +447,7 @@
       (when client-socket (ignore-errors (sb-bsd-sockets:socket-close client-socket)))
       (ignore-errors (sb-bsd-sockets:socket-close listener)))))
 
+(-> test-attachment-host-packets () t)
 (defun test-attachment-host-packets ()
   "Test host packet delivery and receiver-driven attachment termination."
   (dolist (stop-p '(nil t))

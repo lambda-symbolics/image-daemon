@@ -1,10 +1,12 @@
 (in-package #:image-daemon/tests)
 
+(-> eval-tests--root (string) pathname)
 (defun eval-tests--root (name)
   "Return a fresh private temporary directory pathname for test NAME."
   (merge-pathnames (format nil "daemon-eval-~A-~A/" name (daemon-random-nonce))
                    (uiop:temporary-directory)))
 
+(-> eval-tests--write-token (pathname string) pathname)
 (defun eval-tests--write-token (root token)
   "Write TOKEN to a private token file beneath ROOT and return its pathname."
   (let ((pathname (merge-pathnames "token" root)))
@@ -15,6 +17,7 @@
     (setf (ls-compat.posix:file-mode pathname) #o600)
     pathname))
 
+(-> eval-tests--endpoint (pathname &rest t) eval-endpoint)
 (defun eval-tests--endpoint (root &rest arguments)
   "Return an unstarted endpoint beneath ROOT, adjusted by ARGUMENTS."
   (apply #'eval-endpoint-create
@@ -26,6 +29,7 @@
                        :maximum-frame-size 65536 :maximum-source-size 4096
                        :maximum-output-size 4096 :queue-capacity 2 :maximum-clients 2))))
 
+(-> eval-tests--connect (eval-endpoint t) (values sb-bsd-sockets:socket stream))
 (defun eval-tests--connect (endpoint token)
   "Connect and authenticate to ENDPOINT with TOKEN, returning the socket and stream."
   (eval-connect :transport     (eval-endpoint-transport endpoint)
@@ -34,6 +38,7 @@
                 :tcp-port      (eval-endpoint-tcp-port endpoint)
                 :token token :maximum-frame-size 65536 :timeout 2))
 
+(-> eval-tests--frame (string) stream)
 (defun eval-tests--frame (source)
   "Return an octet input stream holding SOURCE as one frame."
   (let ((octets (ls-compat:utf8-string-to-octets source))
@@ -45,18 +50,21 @@
                           (ldb (byte 8 8) length) (ldb (byte 8 0) length))
                   octets))))
 
+(-> eval-tests--reason (function) t)
 (defun eval-tests--reason (thunk)
   "Return the reason of the EVAL-ENDPOINT-ERROR THUNK signals, or :NONE."
   (handler-case (progn (funcall thunk) ':none)
     (eval-endpoint-error (condition)
       (eval-endpoint-error-reason condition))))
 
+(-> eval-tests--with-root (string function) t)
 (defun eval-tests--with-root (name function)
   "Call FUNCTION with a fresh root for NAME and remove the root afterwards."
   (let ((root (eval-tests--root name)))
     (unwind-protect (funcall function root)
       (uiop:delete-directory-tree root :validate t :if-does-not-exist :ignore))))
 
+(-> test-eval-frames () t)
 (defun test-eval-frames ()
   "Test bounded frames, the closed grammar and request schemas."
   (let ((output (flexi-streams:make-in-memory-output-stream)))
@@ -121,6 +129,7 @@
     (check (and (= (length text) 20) truncated-p)
            "bounded printing keeps a marked prefix")))
 
+(-> test-eval-configuration () t)
 (defun test-eval-configuration ()
   "Test endpoint settings validation and token proofs."
   (eval-tests--with-root
@@ -145,6 +154,7 @@
        (check (typep (eval-endpoint-create :token-pathname token) 'eval-endpoint)
               "loopback TCP is the default transport")))))
 
+(-> test-eval-debugger-hook () t)
 (defun test-eval-debugger-hook ()
   "Test evaluation intercepts debugger entry before the process hook."
   (let* ((endpoint            (eval-endpoint-create :token-pathname #p"/nonexistent/token"))
@@ -163,6 +173,7 @@
                     (search "eval test" (getf (rest response) :report)))
                "BREAK becomes a condition result")))))
 
+(-> test-eval-lifecycle () t)
 (defun test-eval-lifecycle ()
   "Test authentication, evaluation, wrong tokens and idempotent shutdown."
   (eval-tests--with-root
@@ -210,6 +221,8 @@
          (ignore-errors (eval-endpoint-stop endpoint)))))))
 
 #-win32
+(-> test-eval-unix-paths () t)
+#-win32
 (defun test-eval-unix-paths ()
   "Test stale-socket quarantine and refusal of active or alien socket paths."
   (eval-tests--with-root
@@ -250,6 +263,7 @@
          (ignore-errors (eval-endpoint-stop first))
          (ignore-errors (eval-endpoint-stop second)))))))
 
+(-> test-eval-token-file () t)
 (defun test-eval-token-file ()
   "Test that only a private regular token file authenticates."
   (eval-tests--with-root
@@ -282,6 +296,7 @@
                 (check t "a private token file authenticates again")))
          (eval-endpoint-stop endpoint))))))
 
+(-> test-eval-client-bounds () t)
 (defun test-eval-client-bounds ()
   "Test the client bound and the absolute authentication deadline."
   (eval-tests--with-root
@@ -322,6 +337,7 @@
              (ignore-errors (sb-bsd-sockets:socket-close socket)))
            (ignore-errors (eval-endpoint-stop endpoint))))))))
 
+(-> test-eval-start-failure () t)
 (defun test-eval-start-failure ()
   "Test a failed thread start removes the listener and the owned socket."
   (eval-tests--with-root

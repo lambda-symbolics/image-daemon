@@ -1,5 +1,6 @@
 (in-package #:image-daemon/tests)
 
+(-> call-with-blocked-thread-cleanup (function) t)
 (defun call-with-blocked-thread-cleanup (function)
   "Call FUNCTION with a thread whose unwind cleanup awaits explicit release."
   (let* ((started         (sb-thread:make-semaphore :count 0))
@@ -26,6 +27,10 @@
       (sb-thread:signal-semaphore release-cleanup)
       (sb-thread:join-thread thread :timeout 2 :default nil))))
 
+(-> check-blocked-thread-stop
+    (sb-thread:thread &key (:cleanup-started sb-thread:semaphore)
+                      (:release-cleanup sb-thread:semaphore) (:stop-function function))
+    t)
 (defun check-blocked-thread-stop (thread &key cleanup-started release-cleanup stop-function)
   "Require STOP-FUNCTION to report a bounded, recoverable thread-stop failure."
   (let ((completed  (sb-thread:make-semaphore :count 0))
@@ -58,6 +63,7 @@
                 (eq (sb-thread:thread-error-thread (daemon-error-cause failure)) thread))
            "failure retains the target thread for later reaping")))
 
+(-> test-relay-stop-recovery () t)
 (defun test-relay-stop-recovery ()
   "Close every relay attachment and retain failed writer cleanup for retry."
   (call-with-blocked-thread-cleanup
@@ -92,6 +98,7 @@
          (transport-stop relay)
          (ignore-errors (sb-bsd-sockets:socket-close socket)))))))
 
+(-> test-thread-stop-deadline () t)
 (defun test-thread-stop-deadline ()
   "Exercise bounded termination and attachment/runtime ownership on failure."
   (dolist (owner '(:thread :attachment :runtime))

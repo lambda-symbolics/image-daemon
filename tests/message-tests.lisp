@@ -1,6 +1,7 @@
 (defpackage #:image-daemon/message-tests
   (:documentation "Cross-process tests for image-daemon's message transport.")
   (:use #:cl)
+  (:import-from #:serapeum #:->)
   (:export #:run-tests #:child-serve))
 
 (in-package #:image-daemon/message-tests)
@@ -8,17 +9,20 @@
 (defvar *checks* 0
   "The number of assertions checked in the current run.")
 
+(-> check (t) null)
 (defun check (value)
   "Count one behavioral assertion."
   (incf *checks*)
   (unless value (error "Message assertion ~D failed." *checks*)))
 
+(-> failure (keyword function) null)
 (defun failure (reason function)
   "Require a typed message failure from FUNCTION."
   (check (handler-case (progn (funcall function) nil)
            (image-daemon:daemon-message-error (condition)
              (eq reason (image-daemon:daemon-message-error-reason condition))))))
 
+(-> child-serve ((or pathname string)) t)
 (defun child-serve (directory)
   "Host a real detached test endpoint until its authenticated stop operation."
   (let ((done nil) (lock (bordeaux-threads:make-lock)) (runtime nil))
@@ -49,6 +53,7 @@
            (sleep 0.05))
       (image-daemon:daemon-runtime-stop runtime))))
 
+(-> test-process-transport () t)
 (defun test-process-transport ()
   "Run actual subprocess discovery, framing, correlation, failures and cancellation."
   (let* ((root         (asdf:system-source-directory "image-daemon"))
@@ -105,6 +110,7 @@
       (when process (ignore-errors (uiop:wait-process process)))
       (uiop:delete-directory-tree directory :validate t :if-does-not-exist ':ignore))))
 
+(-> test-client-capacity () t)
 (defun test-client-capacity ()
   "Bound admitted connections before frame parsing and stop blocked clients."
   (let ((runtime (image-daemon:daemon-message-endpoint-create :publish-p nil :client-limit 1
@@ -130,6 +136,7 @@
       (when socket (ignore-errors (sb-bsd-sockets:socket-close socket)))
       (image-daemon:daemon-runtime-stop runtime))))
 
+(-> test-timers () t)
 (defun test-timers ()
   "Exercise deadlines and changed-deadline notification on the existing accept loop."
   (let ((runtime (image-daemon:daemon-runtime-create
@@ -167,6 +174,7 @@
            (check (null (image-daemon:daemon-runtime-notify runtime))))
       (image-daemon:daemon-runtime-stop runtime))))
 
+(-> run-tests () t)
 (defun run-tests ()
   "Run actual subprocess transport and existing-loop timer checks."
   (let ((*checks* 0))

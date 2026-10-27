@@ -3,12 +3,14 @@
 (defvar *assertions* 0
   "The number of assertions checked in the current run.")
 
+(-> check (t string &rest t) null)
 (defun check (value control &rest arguments)
   "Count one assertion and fail with CONTROL unless VALUE is true."
   (incf *assertions*)
   (unless value
     (error (apply #'format nil control arguments))))
 
+(-> expect-failure (function keyword) t)
 (defun expect-failure (thunk operation)
   "Require THUNK to fail with a daemon error naming OPERATION."
   (handler-case
@@ -20,6 +22,7 @@
              "failure operation ~S is not ~S"
              (daemon-error-operation condition) operation))))
 
+(-> test-framing () t)
 (defun test-framing ()
   "Test bounded frames preserve packets and reject unsafe payloads."
   (let* ((text
@@ -74,6 +77,7 @@
                      :initial-element #\a))))
    ':write-packet))
 
+(-> test-identifiers () t)
 (defun test-identifiers ()
   "Test canonical identifiers, legacy identifiers, and rejection."
   (let* ((canonical (session-identifier-normalize "z5tRZJx"))
@@ -89,6 +93,7 @@
    (lambda () (session-identifier-normalize "definitely not an id"))
    ':arguments))
 
+(-> test-identity-material () t)
 (defun test-identity-material ()
   "Test token and nonce shapes."
   (let ((token (daemon-random-token))
@@ -103,6 +108,7 @@
     (check (not (string= (daemon-random-token) token))
            "tokens are fresh")))
 
+(-> test-response-deadline () t)
 (defun test-response-deadline ()
   "Test required responses stop at the transport deadline."
   (multiple-value-bind (read-descriptor write-descriptor)
@@ -132,6 +138,7 @@
         (ignore-errors (sb-posix:close read-descriptor))
         (ignore-errors (sb-posix:close write-descriptor))))))
 
+(-> run-tests () t)
 (defun run-tests ()
   "Run the image-daemon tests and return true on success."
   (setf *assertions* 0)

@@ -1,6 +1,7 @@
 (defpackage #:image-daemon/tests
   (:documentation "Tests for image-daemon's protocol, runtime, relays, handoff and evaluation.")
   (:use #:cl)
+  (:import-from #:serapeum #:->)
   (:import-from #:image-daemon
                 #:*attachment-queue-character-limit*
                 #:*daemon-connect-timeout-seconds*

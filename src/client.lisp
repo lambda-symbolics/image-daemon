@@ -2,12 +2,14 @@
 
 ;;;; -- Attachment Packet Loops --
 
+(-> daemon-terminal-event-p (t) boolean)
 (defun daemon-terminal-event-p (event)
   "Return true when EVENT is a supported semantic terminal event."
   (or (keywordp event) (characterp event)
       (and (proper-list-p event) (= (length event) 2)
            (member (first event) '(:insert :paste :line)) (stringp (second event)))))
 
+(-> relay-read-attachment (relay attachment &key (:event-validator (or function symbol))) null)
 (defun relay-read-attachment (relay attachment &key (event-validator #'daemon-terminal-event-p))
   "Relay validated controlling input and resize packets until detach or stream end."
   (loop for packet = (handler-case (daemon-read-packet (attachment-stream attachment))
@@ -32,6 +34,7 @@
                       (transport-resize relay :rows rows :columns columns :styled-p styled-p))))))))
   nil)
 
+(-> daemon-exit-details-p (t) boolean)
 (defun daemon-exit-details-p (details)
   "Return true when DETAILS is NIL or a plist of keywords to strings or integers."
   (and (proper-list-p details)
@@ -40,6 +43,7 @@
              always (and (keywordp key) (typep value '(or string integer))))
        t))
 
+(-> daemon-attach--exit-p (t) boolean)
 (defun daemon-attach--exit-p (packet)
   "Return true when PACKET is a well-formed application exit packet."
   (and (proper-list-p packet)
@@ -49,6 +53,10 @@
        (daemon-exit-details-p (getf (rest packet) :details))
        t))
 
+(-> daemon-attach-receive
+    (stream stream function &key (:exit-function (or null function))
+            (:packet-function (or null function)))
+    null)
 (defun daemon-attach-receive (stream output-stream stop-function &key exit-function packet-function)
   "Copy remote output to OUTPUT-STREAM and always call STOP-FUNCTION on exit.
 
@@ -82,6 +90,12 @@ PACKET-FUNCTION receives unrecognized packets; a true return ends the attachment
     (funcall stop-function))
   nil)
 
+(-> daemon-attach-client-run
+    (stream &key (:socket t) (:mode t) (:input-ready-function (or null function))
+            (:read-event-function (or null function)) (:resize-function (or null function))
+            (:output-stream stream) (:close-function (or null function))
+            (:packet-function (or null function)))
+    list)
 (defun daemon-attach-client-run (stream &key socket mode input-ready-function read-event-function
                                            resize-function (output-stream *standard-output*)
                                             close-function packet-function)

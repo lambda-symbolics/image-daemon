@@ -47,6 +47,7 @@
             :documentation "The bounded asynchronous output writer."))
           (:documentation "One persistent read-only or controlling terminal attachment."))
 
+(-> attachment--shutdown-socket (attachment) null)
 (defun attachment--shutdown-socket (attachment)
   "Shut down ATTACHMENT once, serialized with every transport closer."
   (bordeaux-threads:with-lock-held ((attachment-transport-lock attachment))
@@ -56,6 +57,7 @@
        (sb-bsd-sockets:socket-shutdown (attachment-socket attachment) :direction ':io))))
   nil)
 
+(-> attachment--close-stream (attachment) null)
 (defun attachment--close-stream (attachment)
   "Shut down and abortively close ATTACHMENT once under its transport lock."
   (attachment--shutdown-socket attachment)
@@ -66,6 +68,7 @@
        (setf (attachment-stream-closed-p attachment) t))))
   nil)
 
+(-> attachment--writer-loop (attachment) null)
 (defun attachment--writer-loop (attachment)
   "Write ATTACHMENT's queued packets until closure or transport failure."
   (block write-packets
@@ -95,6 +98,7 @@
   (attachment--close-stream attachment)
   nil)
 
+(-> attachment-create (sb-bsd-sockets:socket stream keyword) attachment)
 (defun attachment-create (socket stream mode)
   "Create a persistent attachment over SOCKET and STREAM with MODE."
   (let ((attachment (make-instance 'attachment :socket socket :stream stream :mode mode)))
@@ -104,6 +108,7 @@
            "Image daemonp attachment output"))
     attachment))
 
+(-> attachment-send (attachment t) boolean)
 (defun attachment-send (attachment packet)
   "Queue PACKET for ATTACHMENT, closing a client that falls too far behind."
   (let ((text (daemon-packet-string packet)) (accepted-p nil) (close-p nil))
@@ -121,6 +126,7 @@
     (when close-p (attachment--shutdown-socket attachment))
     accepted-p))
 
+(-> attachment-close (attachment) null)
 (defun attachment-close (attachment)
   "Close ATTACHMENT and join its writer when called from another thread."
   (let ((writer nil))
@@ -133,6 +139,7 @@
     (when writer (daemon-stop-thread writer)))
   nil)
 
+(-> attachment-finish (attachment t) null)
 (defun attachment-finish (attachment packet)
   "Send PACKET as ATTACHMENT's last packet, then reap its writer and close it.
 
@@ -185,12 +192,14 @@ deadline."
           (:documentation
            "A terminal relay supporting foreground, detached, and observed use."))
 
+(-> relay-set-wake-function (relay (or null function)) null)
 (defun relay-set-wake-function (transport function)
   "Set TERMINAL's responsive-reader wake FUNCTION."
   (bordeaux-threads:with-lock-held ((relay-lock transport))
     (setf (relay-wake-function transport) function))
   nil)
 
+(-> relay--output-chunks (string) list)
 (defun relay--output-chunks (text)
   "Return TEXT as ordered bounded attachment-output chunks."
   (loop with length = (length text)
@@ -201,6 +210,7 @@ deadline."
         end = (min length (+ start *relay-output-chunk-character-limit*))
         collect (subseq text start end)))
 
+(-> relay--retain-output (relay string) null)
 (defun relay--retain-output (transport text)
   "Append TEXT to TERMINAL's exactly bounded attachment replay history while locked."
   (let ((history (relay-history transport)))
@@ -216,6 +226,7 @@ deadline."
                  (setf (structlisp:deque-ref history 0) (subseq first excess)))))
   nil)
 
+(-> relay-history-text (relay) string)
 (defun relay-history-text (transport)
   "Return a consistent copy of TERMINAL's retained rendered output."
   (bordeaux-threads:with-lock-held ((relay-lock transport))
@@ -322,6 +333,7 @@ deadline."
           (t
            ':stream-end))))
 
+(-> relay-enqueue-event (relay attachment t) boolean)
 (defun relay-enqueue-event (transport attachment event)
   "Queue ATTACHMENT's controlling EVENT for TERMINAL."
   (let ((wake-function nil))
@@ -334,6 +346,7 @@ deadline."
     (when wake-function (funcall wake-function))
     t))
 
+(-> relay-release-direct (relay) boolean)
 (defun relay-release-direct (transport)
   "Restore and release TERMINAL's launching foreground transport."
   (let ((direct nil))
@@ -345,6 +358,10 @@ deadline."
     (when direct (ignore-errors (transport-stop direct)))
     (not (null direct))))
 
+(-> relay-attach
+    (relay attachment &key (:rows (or null integer)) (:columns (or null integer)) (:styled-p t)
+                     (:session-id t))
+    (values boolean boolean))
 (defun relay-attach (transport attachment &key rows columns styled-p session-id)
   "Attach ATTACHMENT after queueing its handshake and report direct release."
   (let ((mode              (attachment-mode attachment))
@@ -401,6 +418,7 @@ deadline."
       (attachment-close old-controller))
     (values t released-direct-p)))
 
+(-> relay-detach (relay attachment) boolean)
 (defun relay-detach (transport attachment)
   "Remove ATTACHMENT and report whether it controlled TERMINAL."
   (let ((controlled-p nil))
@@ -415,6 +433,7 @@ deadline."
       (sb-thread:condition-broadcast (relay-input-condition-variable transport)))
     controlled-p))
 
+(-> relay-release-control (relay) boolean)
 (defun relay-release-control (transport)
   "Release TERMINAL's direct or remote controller and report direct ownership."
   (let ((direct nil) (controller nil))
@@ -432,6 +451,7 @@ deadline."
       (attachment-close controller))
     (not (null direct))))
 
+(-> relay-finish (relay &key (:status t) (:message t) (:details t)) relay)
 (defun relay-finish (transport &key status message details)
   "Tell every attachment its application exits with STATUS, then release them.
 
@@ -464,16 +484,19 @@ application."
                                            (when details (list :details details))))))
   transport)
 
+(-> relay-observer-count (relay) (integer 0))
 (defun relay-observer-count (transport)
   "Return TERMINAL's current read-only attachment count."
   (bordeaux-threads:with-lock-held ((relay-lock transport))
     (length (relay-observers transport))))
 
+(-> relay-attached-p (relay) boolean)
 (defun relay-attached-p (transport)
   "Return true when TERMINAL has direct or controlling ownership."
   (bordeaux-threads:with-lock-held ((relay-lock transport))
     (not (null (or (relay-direct-terminal transport) (relay-controller transport))))))
 
+(-> relay-attachment-kind (relay) keyword)
 (defun relay-attachment-kind (transport)
   "Return TERMINAL's current ownership kind."
   (bordeaux-threads:with-lock-held ((relay-lock transport))
@@ -484,6 +507,10 @@ application."
           (t
            ':detached))))
 
+(-> relay-create
+    (&key (:direct-terminal t) (:rows integer) (:columns integer) (:interactive-p t)
+          (:styled-p t))
+    relay)
 (defun relay-create (&key direct-terminal (rows 24) (columns 80) interactive-p styled-p)
   "Create a relay independent of the host terminal implementation."
   (make-instance 'relay :direct-terminal direct-terminal :rows rows :columns columns

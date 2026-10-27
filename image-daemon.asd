@@ -42,7 +42,8 @@
   :serial      t
   :components  ((:module     "tests"
                  :serial     t
-                 :components ((:file "tests")
+                 :components ((:file "package")
+                              (:file "tests")
                               (:file "thread-tests")
                               (:file "runtime-tests")
                               (:file "attachment-tests")

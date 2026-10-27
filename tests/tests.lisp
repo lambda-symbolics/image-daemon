@@ -1,8 +1,3 @@
-(defpackage #:image-daemon/tests
-  (:documentation "Tests for image-daemon's protocol, runtime, relays, handoff and evaluation.")
-  (:use #:cl #:image-daemon)
-  (:export #:run-tests))
-
 (in-package #:image-daemon/tests)
 
 (defvar *assertions* 0

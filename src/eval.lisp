@@ -210,6 +210,7 @@ The operation is :CONFIGURE, :CREDENTIALS, :LISTEN, :PROTOCOL, :AUTHENTICATE,
 :QUEUE, :EVALUATE or :QUIESCE, and the reason narrows it without revealing
 secrets."))
 
+(-> eval--fail (keyword keyword string &key (:threads list) (:cause t)) nil)
 (defun eval--fail (operation reason message &key threads cause)
   "Signal EVAL-ENDPOINT-ERROR for OPERATION and REASON with MESSAGE."
   (error 'eval-endpoint-error :operation operation :reason reason :message message
@@ -218,21 +219,25 @@ secrets."))
 
 ;;;; -- Bounded Capture --
 
+(-> eval-output-stream-create ((integer 0)) eval-output-stream)
 (defun eval-output-stream-create (capacity)
   "Return a stream retaining at most CAPACITY characters."
   (make-instance 'eval-output-stream
                  :builder (structlisp:make-bounded-sequence-builder
                            capacity :element-type 'character)))
 
+(-> eval-output-stream-text (eval-output-stream) string)
 (defun eval-output-stream-text (stream)
   "Return a fresh string holding STREAM's retained prefix."
   (coerce (structlisp:bounded-sequence-builder-snapshot (eval-output-stream--builder stream))
           'string))
 
+(-> eval-output-stream-truncated-p (eval-output-stream) t)
 (defun eval-output-stream-truncated-p (stream)
   "Return true when STREAM discarded output beyond its capacity."
   (structlisp:bounded-sequence-builder-overflowed-p (eval-output-stream--builder stream)))
 
+(-> eval-output-stream--capture (eval-output-stream character) null)
 (defun eval-output-stream--capture (stream character)
   "Retain CHARACTER while STREAM has room and advance its logical column."
   (structlisp:bounded-sequence-builder-try-append (eval-output-stream--builder stream)
@@ -264,6 +269,7 @@ secrets."))
   "Return STREAM's logical output column."
   (eval-output-stream--column stream))
 
+(-> eval-print-bounded (t (integer 0)) (values string t))
 (defun eval-print-bounded (value limit)
   "Return a bounded, escaped rendering of VALUE and whether it was truncated.
 
@@ -282,10 +288,12 @@ beyond 64 elements are elided, and at most LIMIT characters are kept."
 
 ;;;; -- Wire Frames --
 
+(-> eval--protocol-error (keyword string) nil)
 (defun eval--protocol-error (reason message)
   "Signal a protocol failure for REASON."
   (eval--fail ':protocol reason message))
 
+(-> eval--frame-grammar ((integer 1)) t)
 (defun eval--frame-grammar (maximum-size)
   "Return the closed data grammar of frames no larger than MAXIMUM-SIZE octets."
   (sexp-config:make-source-grammar
@@ -300,6 +308,7 @@ beyond 64 elements are elided, and at most LIMIT characters are kept."
                                                 (or (null value) (eq value t) (keywordp value)
                                                     (stringp value) (integerp value)))))
 
+(-> eval--integer->header ((unsigned-byte 32)) (simple-array (unsigned-byte 8) (4)))
 (defun eval--integer->header (value)
   "Encode unsigned VALUE as a four-octet network-order frame header."
   (let ((header (make-array 4 :element-type '(unsigned-byte 8))))
@@ -309,6 +318,7 @@ beyond 64 elements are elided, and at most LIMIT characters are kept."
           (aref header 3) (ldb (byte 8 0) value))
     header))
 
+(-> eval--header->integer ((vector (unsigned-byte 8))) (unsigned-byte 32))
 (defun eval--header->integer (header)
   "Decode a four-octet network-order frame HEADER."
   (logior (ash (aref header 0) 24)
@@ -316,6 +326,9 @@ beyond 64 elements are elided, and at most LIMIT characters are kept."
           (ash (aref header 2) 8)
           (aref header 3)))
 
+(-> eval--read-exactly
+    (stream (integer 0) &key (:eof-ok-p t))
+    (or null (simple-array (unsigned-byte 8) (*))))
 (defun eval--read-exactly (stream count &key eof-ok-p)
   "Read exactly COUNT octets from STREAM.
 
@@ -331,6 +344,7 @@ Return NIL at a clean end of input before the first octet when EOF-OK-P."
              (setf position next))
     octets))
 
+(-> eval-read-frame (stream (integer 1)) t)
 (defun eval-read-frame (stream maximum-size)
   "Read one frame of at most MAXIMUM-SIZE octets from octet STREAM.
 
@@ -366,6 +380,7 @@ operation :PROTOCOL and reason :EMPTY, :TRAILING, :OVERSIZED, :TRUNCATED,
                 ':malformed))
              "Evaluation protocol frame violates its data grammar.")))))))
 
+(-> eval-write-frame (stream t (integer 1)) null)
 (defun eval-write-frame (stream value maximum-size)
   "Print VALUE readably as one frame of at most MAXIMUM-SIZE octets to STREAM.
 
@@ -388,6 +403,7 @@ encoding does not fit."
       (force-output stream)))
   nil)
 
+(-> eval--write-response (stream t (integer 1)) null)
 (defun eval--write-response (stream value maximum-size)
   "Write VALUE, degrading an oversized encoding to a bounded protocol error."
   (handler-case
@@ -398,6 +414,7 @@ encoding does not fit."
       (eval-write-frame stream '(:protocol-error :reason :oversized) maximum-size)))
   nil)
 
+(-> eval--decode-schema (t keyword list) list)
 (defun eval--decode-schema (form tag keys)
   "Return the properties of FORM, which must be TAG with each of KEYS exactly once."
   (unless (and (consp form) (eq (first form) tag))
@@ -413,10 +430,12 @@ encoding does not fit."
 
 ;;;; -- Authentication --
 
+(-> eval--octets->hex ((vector (unsigned-byte 8))) string)
 (defun eval--octets->hex (octets)
   "Return the lowercase hexadecimal encoding of OCTETS."
   (string-downcase (ironclad:byte-array-to-hex-string octets)))
 
+(-> eval--hex->octets (t (integer 0)) (or null (simple-array (unsigned-byte 8) (*))))
 (defun eval--hex->octets (text expected-length)
   "Decode hexadecimal TEXT only when it holds exactly EXPECTED-LENGTH octets, else NIL."
   (when (and (stringp text)
@@ -427,6 +446,7 @@ encoding does not fit."
         (setf (aref octets index)
               (parse-integer text :start (* index 2) :end (+ (* index 2) 2) :radix 16))))))
 
+(-> eval--constant-time-equal-p ((vector (unsigned-byte 8)) (vector (unsigned-byte 8))) boolean)
 (defun eval--constant-time-equal-p (left right)
   "Return true when octet vectors LEFT and RIGHT are equal, without an early return."
   (let ((difference (logxor (length left) (length right))))
@@ -436,6 +456,7 @@ encoding does not fit."
           do (setf difference (logior difference (logxor left-octet right-octet))))
     (zerop difference)))
 
+(-> eval--token-file-octets ((or pathname string)) (simple-array (unsigned-byte 8) (*)))
 (defun eval--token-file-octets (pathname)
   "Read the token in private regular file PATHNAME without following a link."
   (let ((stream nil))
@@ -462,12 +483,16 @@ encoding does not fit."
       (when stream
         (ignore-errors (close stream))))))
 
+(-> eval--hmac
+    ((vector (unsigned-byte 8)) (vector (unsigned-byte 8)))
+    (simple-array (unsigned-byte 8) (*)))
 (defun eval--hmac (token nonce)
   "Return HMAC-SHA-256 of octet vector NONCE keyed by octet vector TOKEN."
   (let ((hmac (ironclad:make-hmac token ':sha256)))
     (ironclad:update-hmac hmac nonce)
     (ironclad:hmac-digest hmac)))
 
+(-> eval-proof (t t) string)
 (defun eval-proof (token nonce)
   "Return the hexadecimal proof answering hexadecimal challenge NONCE with TOKEN.
 
@@ -488,6 +513,7 @@ UTF-8. Intermediate octets are wiped before returning."
       (when proof
         (fill proof 0)))))
 
+(-> eval--authenticate (stream (or pathname string) (integer 1)) null)
 (defun eval--authenticate (stream token-pathname maximum-frame-size)
   "Challenge STREAM with a fresh nonce and require the matching proof.
 
@@ -528,6 +554,7 @@ secret octet is wiped on every exit."
 
 ;;;; -- Endpoint Creation --
 
+(-> eval--loopback-address-p (t) boolean)
 (defun eval--loopback-address-p (address)
   "Return true when ADDRESS is an IPv4 loopback literal."
   (and (stringp address)
@@ -536,6 +563,12 @@ secret octet is wiped on every exit."
            nil))
        t))
 
+(-> eval-endpoint-create
+    (&key (:transport t) (:unix-pathname t) (:tcp-address t) (:tcp-port t) (:token-pathname t)
+          (:package t) (:evaluation-timeout t) (:authentication-timeout t)
+          (:maximum-frame-size t) (:maximum-source-size t) (:maximum-output-size t)
+          (:queue-capacity t) (:maximum-clients t) (:error-function t))
+    eval-endpoint)
 (defun eval-endpoint-create (&key (transport ':tcp) unix-pathname (tcp-address "127.0.0.1")
                                   (tcp-port 0) token-pathname (package "CL-USER")
                                   (evaluation-timeout 10) (authentication-timeout 10)
@@ -602,11 +635,13 @@ EVAL-ENDPOINT-ERROR with operation :CONFIGURE."
 
 ;;;; -- Evaluation --
 
+(-> eval--remaining-seconds (eval-request) (real 0))
 (defun eval--remaining-seconds (request)
   "Return REQUEST's nonnegative remaining time in seconds."
   (max 0 (/ (- (eval-request-deadline request) (get-internal-real-time))
             internal-time-units-per-second)))
 
+(-> eval--complete-request (eval-request t) null)
 (defun eval--complete-request (request response)
   "Install RESPONSE once and wake REQUEST's waiting client."
   (sb-thread:with-mutex ((eval-request-lock request))
@@ -616,6 +651,7 @@ EVAL-ENDPOINT-ERROR with operation :CONFIGURE."
       (sb-thread:condition-broadcast (eval-request-condition-variable request))))
   nil)
 
+(-> eval--read-source-form (string package) t)
 (defun eval--read-source-form (source package)
   "Read exactly one form from SOURCE in PACKAGE with read-time evaluation off."
   (with-standard-io-syntax
@@ -629,6 +665,7 @@ EVAL-ENDPOINT-ERROR with operation :CONFIGURE."
           (eval--protocol-error ':trailing "The evaluation source contains trailing data."))
         form))))
 
+(-> eval--evaluate-request (eval-endpoint eval-request) list)
 (defun eval--evaluate-request (endpoint request)
   "Evaluate REQUEST with bounded output before its deadline and return the response.
 
@@ -695,6 +732,7 @@ debugger hook runs."
         (serious-condition (condition)
           (condition-response condition nil))))))
 
+(-> eval--run-evaluator (eval-endpoint) null)
 (defun eval--run-evaluator (endpoint)
   "Evaluate ENDPOINT's queued requests one at a time until shutdown drains it."
   (loop for request = (sb-thread:with-mutex ((eval-endpoint-lock endpoint))
@@ -708,6 +746,7 @@ debugger hook runs."
         do (eval--complete-request request (eval--evaluate-request endpoint request)))
   nil)
 
+(-> eval--submit (eval-endpoint string) list)
 (defun eval--submit (endpoint source)
   "Queue SOURCE on ENDPOINT and return its response, waiting no longer than its deadline."
   (let ((request (make-instance 'eval-request
@@ -740,6 +779,7 @@ debugger hook runs."
                 :output             ""
                 :output-truncated-p nil)))))
 
+(-> eval--request-source (t (integer 0)) string)
 (defun eval--request-source (request maximum-source-size)
   "Return the source of evaluation REQUEST, no longer than MAXIMUM-SOURCE-SIZE octets."
   (let ((source (getf (eval--decode-schema request ':evaluate '(:source)) :source)))
@@ -752,10 +792,13 @@ debugger hook runs."
 
 ;;;; -- Listening --
 
+(-> eval--native-namestring ((or pathname string)) string)
 (defun eval--native-namestring (pathname)
   "Return PATHNAME's native namestring."
   (sb-ext:native-namestring pathname))
 
+#-win32
+(-> eval--connect-unix ((or pathname string)) sb-bsd-sockets:socket)
 #-win32
 (defun eval--connect-unix (pathname)
   "Return a stream socket connected to the Unix endpoint at PATHNAME."
@@ -768,6 +811,7 @@ debugger hook runs."
         (ignore-errors (sb-bsd-sockets:socket-close socket))
         (error condition)))))
 
+(-> eval--connect-tcp (t t) sb-bsd-sockets:socket)
 (defun eval--connect-tcp (address port)
   "Return a stream socket connected to TCP ADDRESS and PORT."
   (let ((socket (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp)))
@@ -779,6 +823,8 @@ debugger hook runs."
         (ignore-errors (sb-bsd-sockets:socket-close socket))
         (error condition)))))
 
+#-win32
+(-> eval--prepare-unix-directory ((or pathname string)) null)
 #-win32
 (defun eval--prepare-unix-directory (directory)
   "Create DIRECTORY when needed and require it private to the current user."
@@ -794,6 +840,8 @@ debugger hook runs."
     (setf (ls-compat.posix:file-mode directory) #o700))
   nil)
 
+#-win32
+(-> eval--require-stale-unix-endpoint ((or pathname string)) null)
 #-win32
 (defun eval--require-stale-unix-endpoint (pathname)
   "Signal unless the socket at PATHNAME provably refuses connections."
@@ -813,6 +861,8 @@ debugger hook runs."
         (ignore-errors (sb-bsd-sockets:socket-close probe)))))
   nil)
 
+#-win32
+(-> eval--prepare-unix-path (pathname) null)
 #-win32
 (defun eval--prepare-unix-path (pathname)
   "Make PATHNAME free, removing only a provably stale socket the current user owns.
@@ -856,6 +906,8 @@ when the renamed object is still the socket that was inspected."
   nil)
 
 #-win32
+(-> eval--unix-listener (eval-endpoint) sb-bsd-sockets:socket)
+#-win32
 (defun eval--unix-listener (endpoint)
   "Bind and return ENDPOINT's private Unix listener, recording the socket's identity."
   (let ((pathname (eval-endpoint-unix-pathname endpoint)))
@@ -877,6 +929,7 @@ when the renamed object is still the socket that was inspected."
           (eval--fail ':listen ':bind "The evaluation Unix socket could not listen."
                       :cause condition))))))
 
+(-> eval--tcp-listener (eval-endpoint) sb-bsd-sockets:socket)
 (defun eval--tcp-listener (endpoint)
   "Bind and return ENDPOINT's loopback TCP listener, recording its bound port."
   (let ((listener (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp)))
@@ -896,6 +949,7 @@ when the renamed object is still the socket that was inspected."
         (eval--fail ':listen ':bind "The evaluation TCP endpoint could not listen."
                     :cause condition)))))
 
+(-> eval--owned-unix-path-p (eval-endpoint) boolean)
 (defun eval--owned-unix-path-p (endpoint)
   "Return true when ENDPOINT's Unix pathname still names the socket it created."
   (let ((identity (eval-endpoint-owned-unix-identity endpoint)))
@@ -909,6 +963,7 @@ when the renamed object is still the socket that was inspected."
              nil))
          t)))
 
+(-> eval--wake-listener (eval-endpoint) null)
 (defun eval--wake-listener (endpoint)
   "Unblock a pending accept on ENDPOINT's listener by connecting to it once."
   (let ((socket (ignore-errors
@@ -926,6 +981,7 @@ when the renamed object is still the socket that was inspected."
 
 ;;;; -- Serving --
 
+(-> eval--report (eval-endpoint condition) null)
 (defun eval--report (endpoint condition)
   "Pass serving failure CONDITION to ENDPOINT's error function, if any."
   (let ((function (eval-endpoint-error-function endpoint)))
@@ -933,6 +989,7 @@ when the renamed object is still the socket that was inspected."
       (ignore-errors (funcall function condition))))
   nil)
 
+(-> eval--handle-client (eval-endpoint sb-bsd-sockets:socket) null)
 (defun eval--handle-client (endpoint socket)
   "Authenticate SOCKET, then serve its requests one at a time until it closes."
   (let ((maximum (eval-endpoint-maximum-frame-size endpoint))
@@ -967,6 +1024,7 @@ when the renamed object is still the socket that was inspected."
           (ignore-errors (sb-bsd-sockets:socket-close socket)))))
   nil)
 
+(-> eval--run-client (eval-endpoint sb-bsd-sockets:socket) null)
 (defun eval--run-client (endpoint socket)
   "Serve SOCKET, then remove it and this thread from ENDPOINT."
   (unwind-protect
@@ -978,6 +1036,7 @@ when the renamed object is still the socket that was inspected."
             (delete socket (eval-endpoint-client-sockets endpoint)))))
   nil)
 
+(-> eval--serve (eval-endpoint) null)
 (defun eval--serve (endpoint)
   "Accept connections up to ENDPOINT's client bound until shutdown."
   (loop
@@ -1005,6 +1064,7 @@ when the renamed object is still the socket that was inspected."
 
 ;;;; -- Lifecycle --
 
+(-> eval-endpoint-start (eval-endpoint) eval-endpoint)
 (defun eval-endpoint-start (endpoint)
   "Listen and start ENDPOINT's evaluator and accept threads, then return ENDPOINT.
 
@@ -1038,6 +1098,7 @@ failure is resignaled."
       (ignore-errors (eval-endpoint-stop endpoint))
       (error condition))))
 
+(-> eval--wait-for-threads (list real) list)
 (defun eval--wait-for-threads (threads timeout)
   "Return those of THREADS still alive after waiting at most TIMEOUT seconds."
   (let ((deadline (+ (get-internal-real-time) (* timeout internal-time-units-per-second))))
@@ -1050,6 +1111,7 @@ failure is resignaled."
           do (sleep 0.01)
           finally (return alive))))
 
+(-> eval-endpoint-stop (eval-endpoint &key (:timeout real)) null)
 (defun eval-endpoint-stop (endpoint &key (timeout *eval-stop-timeout-seconds*))
   "Stop ENDPOINT and wait at most TIMEOUT seconds for its threads.
 
@@ -1092,6 +1154,10 @@ operation :QUIESCE naming them."
 
 ;;;; -- Clients --
 
+(-> eval-connect
+    (&key (:transport t) (:unix-pathname t) (:tcp-address t) (:tcp-port t) (:token t)
+          (:maximum-frame-size (integer 1)) (:timeout real))
+    (values sb-bsd-sockets:socket stream))
 (defun eval-connect (&key (transport ':tcp) unix-pathname (tcp-address "127.0.0.1") tcp-port
                           token (maximum-frame-size 1048576) (timeout 10))
   "Connect to an evaluation endpoint and authenticate with TOKEN.
@@ -1128,6 +1194,7 @@ operation :AUTHENTICATE."
       (unless completed-p
         (ignore-errors (sb-bsd-sockets:socket-close socket))))))
 
+(-> eval-call (stream string &key (:maximum-frame-size (integer 1))) t)
 (defun eval-call (stream source &key (maximum-frame-size 1048576))
   "Send SOURCE for evaluation on authenticated STREAM and return the response form.
 

@@ -52,6 +52,7 @@ The replacement runs in its own process group, created before the launcher
 starts, and only once its group identifier is recorded beside the ticket, so a
 failed handoff can always find and stop everything the replacement started.")
 
+(-> handoff-ticket-pathname (t t) pathname)
 (defun handoff-ticket-pathname (directory name)
   "Return a fresh, unguessable ticket pathname for NAME beneath DIRECTORY."
   (unless (and (stringp name) (plusp (length name))
@@ -63,6 +64,7 @@ failed handoff can always find and stop everything the replacement started.")
                                   :type "sexp")
                    directory))
 
+(-> handoff-ticket-sibling ((or pathname string) t) pathname)
 (defun handoff-ticket-sibling (pathname state)
   "Return the sibling of ticket PATHNAME that holds STATE."
   (unless (member state *handoff-ticket-states*)
@@ -71,12 +73,14 @@ failed handoff can always find and stop everything the replacement started.")
   (make-pathname :name     (format nil "~A-~(~A~)" (pathname-name pathname) state)
                  :defaults pathname))
 
+(-> handoff-ticket-family ((or pathname string)) list)
 (defun handoff-ticket-family (pathname)
   "Return ticket PATHNAME and every sibling it may have."
   (cons pathname
         (mapcar (lambda (state) (handoff-ticket-sibling pathname state))
                 *handoff-ticket-states*)))
 
+(-> handoff-ticket-write ((or pathname string) t) (or pathname string))
 (defun handoff-ticket-write (pathname record)
   "Atomically write RECORD to PATHNAME, private to the current user."
   (ensure-directories-exist pathname)
@@ -85,6 +89,7 @@ failed handoff can always find and stop everything the replacement started.")
   (setf (ls-compat.posix:file-mode pathname) #o600)
   pathname)
 
+(-> handoff-ticket-read ((or pathname string) &key (:validate function)) t)
 (defun handoff-ticket-read (pathname &key (validate (constantly t)))
   "Return PATHNAME's complete record when VALIDATE accepts it, otherwise NIL."
   (handler-case
@@ -93,6 +98,7 @@ failed handoff can always find and stop everything the replacement started.")
     (error ()
       nil)))
 
+(-> handoff-ticket-claim ((or pathname string)) pathname)
 (defun handoff-ticket-claim (pathname)
   "Claim ticket PATHNAME for this process and return the claimed pathname.
 
@@ -109,6 +115,7 @@ HANDOFF-TICKET-OWNED-RECORD and HANDOFF-TICKET-REPLACEMENT-PID read."
                           (list :handoff-pid :pid (sb-posix:getpid)))
     claimed))
 
+(-> handoff-ticket--acknowledged-pid ((or pathname string)) (or null (integer 1)))
 (defun handoff-ticket--acknowledged-pid (pathname)
   "Return the process identifier that claimed ticket PATHNAME, or NIL."
   (let ((record (handoff-ticket-read
@@ -119,6 +126,7 @@ HANDOFF-TICKET-OWNED-RECORD and HANDOFF-TICKET-REPLACEMENT-PID read."
                                   (typep (getf (rest record) :pid) '(integer 1)))))))
     (and record (getf (rest record) :pid))))
 
+(-> handoff-ticket-owned-record ((or pathname string) &key (:token t) (:validate function)) t)
 (defun handoff-ticket-owned-record (pathname &key token (validate (constantly t)))
   "Return ticket PATHNAME's record while this process still owns its claim, else NIL.
 
@@ -133,6 +141,7 @@ handoff has renamed the ticket away."
          (eql (handoff-ticket--acknowledged-pid pathname) (sb-posix:getpid))
          record)))
 
+(-> handoff-ticket-cancel ((or pathname string) &key (:validate function)) pathname)
 (defun handoff-ticket-cancel (pathname &key (validate (constantly t)))
   "Atomically cancel ticket PATHNAME, pending or claimed, and return the cancelled sibling.
 
@@ -163,6 +172,9 @@ cancellation. One brief retry covers a claim racing the cancellation."
                 (cancel-from claimed))))
       cancelled)))
 
+(-> handoff-ticket-replacement-pid
+    ((or pathname string) &key (:validate function))
+    (or null (integer 1)))
 (defun handoff-ticket-replacement-pid (pathname &key (validate (constantly t)))
   "Return the replacement's process identifier for ticket PATHNAME, when known.
 
@@ -178,6 +190,7 @@ The claimant's acknowledgement wins; otherwise any family record that names a
             when (typep pid '(integer 1))
               return pid)))
 
+(-> handoff-ticket-launcher-pid ((or pathname string)) (or null (integer 1)))
 (defun handoff-ticket-launcher-pid (pathname)
   "Return the supervised launcher's process group identifier for ticket PATHNAME, or NIL."
   (handler-case
@@ -190,6 +203,7 @@ The claimant's acknowledgement wins; otherwise any family record that names a
     (error ()
       nil)))
 
+(-> handoff-ticket-delete ((or pathname string)) null)
 (defun handoff-ticket-delete (pathname)
   "Delete every file of ticket PATHNAME's family that exists."
   (dolist (candidate (handoff-ticket-family pathname))
@@ -200,6 +214,7 @@ The claimant's acknowledgement wins; otherwise any family record that names a
 
 ;;;; -- Supervised Launch --
 
+(-> handoff-launch-supervised (list (or pathname string) &key (:directory t) (:output t)) t)
 (defun handoff-launch-supervised (arguments ticket &key directory output)
   "Start ARGUMENTS behind the gated supervisor that records its group beside TICKET.
 
@@ -232,6 +247,7 @@ Hosts without POSIX job control signal DAEMON-ERROR."
 
 ;;;; -- Replacement Readiness --
 
+(-> daemon-endpoint-status (t t t) t)
 (defun daemon-endpoint-status (record token old-pid)
   "Return the status plist of RECORD's endpoint when a new process serves it with TOKEN.
 
@@ -247,6 +263,7 @@ an authenticated :STATUS request; otherwise NIL."
       (error ()
         nil))))
 
+(-> daemon-wait-until (function real &key (:interval real)) t)
 (defun daemon-wait-until (function timeout-seconds &key (interval 0.05))
   "Call FUNCTION every INTERVAL seconds until it returns true or TIMEOUT-SECONDS pass.
 

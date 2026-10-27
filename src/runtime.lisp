@@ -55,6 +55,7 @@
   (declare (ignore runtime))
   (list :error :message (princ-to-string condition)))
 
+(-> daemon-runtime-record (daemon-runtime) list)
 (defun daemon-runtime-record (runtime)
   "Return RUNTIME's current private discovery record."
   (daemon-registry-record :identifier (daemon-runtime-identifier runtime)
@@ -62,6 +63,9 @@
                           :port       (daemon-runtime-port runtime)
                           :created-at (daemon-runtime-created-at runtime)))
 
+(-> daemon-request-valid-p
+    (t t &key (:request-tag keyword) (:protocol-version (or null integer)))
+    boolean)
 (defun daemon-request-valid-p (request token &key
                                              (request-tag ':localgroup-request)
                                              (protocol-version *daemon-protocol-version*))
@@ -78,6 +82,10 @@ When PROTOCOL-VERSION is NIL, omit only the version comparison."
            (keywordp (getf (rest request) :operation)))
     (error () nil)))
 
+(-> daemon-runtime-create
+    (&key (:directory t) (:identifier t) (:request-function t) (:error-function t) (:token t)
+          (:created-at t) (:publish-p t) (:class (or symbol class)) (:initargs list))
+    daemon-runtime)
 (defun daemon-runtime-create (&key directory identifier request-function error-function
                                   token created-at (publish-p t)
                                   (class 'daemon-runtime) initargs)
@@ -134,6 +142,7 @@ start until DAEMON-RUNTIME-START."
   (declare (ignore runtime))
   nil)
 
+(-> daemon-runtime--handle-client (daemon-runtime sb-bsd-sockets:socket) t)
 (defun daemon-runtime--handle-client (runtime socket)
   "Read one authenticated request, then close and unregister SOCKET on every exit."
   (let ((stream                         nil)
@@ -165,6 +174,7 @@ start until DAEMON-RUNTIME-START."
               (daemon-runtime-client-sockets runtime)
               (delete socket (daemon-runtime-client-sockets runtime)))))))
 
+(-> daemon-runtime-notify (daemon-runtime) boolean)
 (defun daemon-runtime-notify (runtime)
   "Wake RUNTIME after changing a host deadline, using its authenticated listener.
 Return T after acknowledgement, or NIL when not started/stopping. No host request
@@ -179,6 +189,9 @@ callback is invoked. The accept loop then recomputes its next deadline."
     (equal (daemon-call (daemon-runtime-port runtime) (daemon-runtime-token runtime) ':runtime-notify)
            '(:runtime-notified))))
 
+(-> daemon-runtime-set-timer
+    (daemon-runtime &key (:next-deadline-function t) (:wake-function t))
+    daemon-runtime)
 (defun daemon-runtime-set-timer (runtime &key next-deadline-function wake-function)
   "Install or clear paired timer callbacks without creating another runner thread.
 NEXT-DEADLINE-FUNCTION receives RUNTIME and returns a universal-time integer or
@@ -196,6 +209,7 @@ start or update live; notification wakes a blocked listener after publication."
   (daemon-runtime-notify runtime)
   runtime)
 
+(-> daemon-runtime--wait-for-client (daemon-runtime) boolean)
 (defun daemon-runtime--wait-for-client (runtime)
   "Wait for listener readiness or service one due deadline, without polling."
   (multiple-value-bind (next-function wake-function)
@@ -218,6 +232,7 @@ start or update live; notification wakes a blocked listener after publication."
            (sb-bsd-sockets:socket-file-descriptor (daemon-runtime-listener runtime))
            ':input (and deadline (max 0 (- deadline (get-universal-time)))) nil)))))
 
+(-> daemon-runtime--serve (daemon-runtime) null)
 (defun daemon-runtime--serve (runtime)
   "Accept requests until RUNTIME stops; never register a client after shutdown."
   (loop
@@ -249,6 +264,7 @@ start or update live; notification wakes a blocked listener after publication."
         (return))))
   nil)
 
+(-> daemon-runtime-start (daemon-runtime) daemon-runtime)
 (defun daemon-runtime-start (runtime)
   "Publish when configured and start RUNTIME, rolling back ownership on failure."
   (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
@@ -272,6 +288,7 @@ start or update live; notification wakes a blocked listener after publication."
                                              (daemon-runtime-record runtime)))))))
   runtime)
 
+(-> daemon-runtime-stop (daemon-runtime) null)
 (defun daemon-runtime-stop (runtime)
   "Stop RUNTIME, unblock socket readers and writers, and unpublish its record."
   (let (listener server clients sockets)

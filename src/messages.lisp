@@ -10,11 +10,13 @@
            :documentation "A non-secret transport or remote rejection reason."))
   (:documentation "A rejected message or an uncertain delivery outcome."))
 
+(-> daemon-message--fail (t) nil)
 (defun daemon-message--fail (reason)
   "Signal a message failure without printing a capability or message payload."
   (error 'daemon-message-error :reason reason :operation ':message
          :message (format nil "Daemon message request ended with ~S." reason)))
 
+(-> daemon-message--portable-p (t) boolean)
 (defun daemon-message--portable-p (value)
   "Return true for bounded proper lists of strings, rational numbers and keywords."
   (let ((active (make-hash-table :test 'eq)) (nodes 0))
@@ -45,6 +47,7 @@
                        (eq value t))))))
       (not (null (valid value 0))))))
 
+(-> daemon-message--bounded (t integer) t)
 (defun daemon-message--bounded (value limit)
   "Validate portable VALUE and its readable character bound before writing."
   (unless (and (daemon-message--portable-p value)
@@ -52,10 +55,12 @@
     (daemon-message--fail ':payload-limit))
   value)
 
+(-> daemon-message--identity-p (t) boolean)
 (defun daemon-message--identity-p (value)
   "Return true for a bounded stable identity string."
   (and (stringp value) (<= 1 (length value) 256)))
 
+(-> daemon-message--envelope-p (t) boolean)
 (defun daemon-message--envelope-p (value)
   "Return true for a well-formed operation envelope without duplicate/unknown keys."
   (and (proper-list-p value) (= (length value) 10)
@@ -92,6 +97,10 @@
     (sb-sys:with-deadline (:seconds (message-runtime-request-timeout runtime))
       (daemon-read-packet stream))))
 
+(-> daemon-message-handle-request
+    (daemon-runtime t &key (:stream (or null stream)) (:dispatcher t) (:character-limit t)
+                    (:request-timeout t))
+    list)
 (defun daemon-message-handle-request (runtime request &key stream dispatcher
                                                           (character-limit 65536)
                                                           (request-timeout 2))
@@ -139,6 +148,10 @@ When composing an existing endpoint, its pre-dispatch frame bound still applies.
         (daemon-write-packet stream response))
       response)))
 
+(-> daemon-message-endpoint-create
+    (&key (:directory t) (:identifier t) (:dispatcher t) (:token t) (:publish-p t)
+          (:character-limit t) (:client-limit t) (:request-timeout t))
+    message-runtime)
 (defun daemon-message-endpoint-create (&key directory identifier dispatcher token
                                            (publish-p t) (character-limit 65536)
                                            (client-limit 32) (request-timeout 2))
@@ -160,6 +173,10 @@ the dispatcher must authorize them. Request/response frames and clients are boun
      (daemon-message-handle-request runtime request :stream stream :dispatcher dispatcher
                                    :character-limit character-limit :request-timeout request-timeout))))
 
+(-> daemon-message-call
+    (t &key (:action t) (:id t) (:sender t) (:receiver t) (:payload t) (:timeout t)
+       (:cancelled-p t) (:character-limit t))
+    t)
 (defun daemon-message-call (record &key action id sender receiver payload (timeout 2)
                                        cancelled-p (character-limit 65536))
   "Send one bounded correlated operation through a discovered private RECORD.

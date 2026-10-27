@@ -64,7 +64,7 @@
 (defun daemon-message--envelope-p (value)
   "Return true for a well-formed operation envelope without duplicate/unknown keys."
   (and (proper-list-p value) (= (length value) 10)
-       (equal (loop for (key datum) on value by #'cddr collect key)
+       (equal (loop for key in value by (partial #'nthcdr 2) collect key)
               '(:action :id :sender :receiver :payload))
        (keywordp (getf value :action))
        (every #'daemon-message--identity-p

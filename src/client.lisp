@@ -39,7 +39,7 @@
   "Return true when DETAILS is NIL or a plist of keywords to strings or integers."
   (and (proper-list-p details)
        (evenp (length details))
-       (loop for (key value) on details by #'cddr
+       (loop for (key value) on details by (partial #'nthcdr 2)
              always (and (keywordp key) (typep value '(or string integer))))
        t))
 

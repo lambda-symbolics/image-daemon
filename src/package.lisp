@@ -3,7 +3,7 @@
   (:documentation "Authenticated local endpoints, persistent services, terminal relays and
 evaluation endpoints for Lisp image daemons.")
   (:use #:cl)
-  (:import-from #:serapeum #:->)
+  (:import-from #:serapeum #:-> #:partial)
   (:export #:relay-create
            #:*handoff-supervisor-script*
            #:handoff-ticket-pathname

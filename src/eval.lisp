@@ -968,14 +968,17 @@ when the renamed object is still the socket that was inspected."
 (-> eval--wake-listener (eval-endpoint) null)
 (defun eval--wake-listener (endpoint)
   "Unblock a pending accept on ENDPOINT's listener by connecting to it once."
-  (let ((socket (ignore-errors
-                 (ecase (eval-endpoint-transport endpoint)
-                   (:unix
-                    #-win32 (eval--connect-unix (eval-endpoint-unix-pathname endpoint))
-                    #+win32 nil)
-                   (:tcp
-                    (eval--connect-tcp (eval-endpoint-tcp-address endpoint)
-                                       (eval-endpoint-tcp-port endpoint)))))))
+  (let ((socket (handler-case
+                    (ecase (eval-endpoint-transport endpoint)
+                      (:unix
+                       #-win32 (eval--connect-unix (eval-endpoint-unix-pathname endpoint))
+                       #+win32 nil)
+                      (:tcp
+                       (eval--connect-tcp (eval-endpoint-tcp-address endpoint)
+                                          (eval-endpoint-tcp-port endpoint))))
+                  ;; A listener that refuses the connection is not blocked in accept.
+                  (sb-bsd-sockets:socket-error ()
+                    nil))))
     (when socket
       (ignore-errors (sb-bsd-sockets:socket-close socket))))
   nil)

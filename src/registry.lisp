@@ -124,7 +124,10 @@ ERRORP is true, so transactional callers can roll back; otherwise return NIL."
               for record = (daemon-registry-read pathname)
               when record collect (cons pathname record))
         #'> :key (lambda (entry)
-                   (or (ignore-errors (file-write-date (first entry))) 0))))
+                   (or (handler-case (file-write-date (first entry))
+                         (file-error ()
+                           nil))
+                       0))))
 
 (-> daemon-registry-reconcile ((or pathname string)) (integer 0))
 (defun daemon-registry-reconcile (directory)

@@ -925,7 +925,9 @@ when the renamed object is still the socket that was inspected."
         (error (condition)
           (ignore-errors (sb-bsd-sockets:socket-close listener))
           (when (eval--owned-unix-path-p endpoint)
-            (ignore-errors (delete-file pathname)))
+            (handler-case (delete-file pathname)
+              (file-error ()
+                nil)))
           (eval--fail ':listen ':bind "The evaluation Unix socket could not listen."
                       :cause condition))))))
 
@@ -1146,7 +1148,9 @@ operation :QUIESCE naming them."
                                        (or (sb-thread:thread-name thread) "unnamed"))
                                      alive))))
     (when (eval--owned-unix-path-p endpoint)
-      (ignore-errors (delete-file (eval-endpoint-unix-pathname endpoint))))
+      (handler-case (delete-file (eval-endpoint-unix-pathname endpoint))
+        (file-error ()
+          nil)))
     (sb-thread:with-mutex ((eval-endpoint-lock endpoint))
       (setf (eval-endpoint-listener endpoint) nil)))
   nil)

@@ -208,7 +208,9 @@ The claimant's acknowledgement wins; otherwise any family record that names a
   "Delete every file of ticket PATHNAME's family that exists."
   (dolist (candidate (handoff-ticket-family pathname))
     (when (probe-file candidate)
-      (ignore-errors (delete-file candidate))))
+      (handler-case (delete-file candidate)
+        (file-error ()
+          nil))))
   nil)
 
 
@@ -231,7 +233,9 @@ Hosts without POSIX job control signal DAEMON-ERROR."
         (gate (handoff-ticket-sibling ticket ':gate)))
     (dolist (pathname (list launcher-pid gate))
       (when (probe-file pathname)
-        (ignore-errors (delete-file pathname))))
+        (handler-case (delete-file pathname)
+          (file-error ()
+            nil))))
     (uiop:launch-program (append (list "bash" "-c" *handoff-supervisor-script*
                                        "image-daemon-handoff"
                                        (first arguments)

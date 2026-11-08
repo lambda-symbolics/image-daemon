@@ -27,6 +27,16 @@ evaluation endpoints for Lisp image daemons.")
            #:daemon-runtime-stop
            #:daemon-runtime-start
            #:daemon-runtime-create
+           #:daemon-runtime-read-request
+           #:daemon-runtime-client-limit
+           #:daemon-runtime-set-timer
+           #:daemon-runtime-notify
+           #:message-runtime
+           #:daemon-message-endpoint-create
+           #:daemon-message-handle-request
+           #:daemon-message-call
+           #:daemon-message-error
+           #:daemon-message-error-reason
            #:daemon-runtime-publish-p
            #:daemon-runtime-request-valid-p
            #:daemon-runtime-error-response

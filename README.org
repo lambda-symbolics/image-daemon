@@ -18,6 +18,10 @@ relay ownership, bounded replay and attachment client loops.
 - Test system: =image-daemon/tests=
 - Package: =IMAGE-DAEMON=
 
+The canonical package declares the optional runtime and message API exports.
+Load the corresponding optional system before calling its API; doing so does
+not change the package exports, so reloading the base package is safe.
+
 Install the locked dependencies and run all tests:
 
 #+begin_src sh

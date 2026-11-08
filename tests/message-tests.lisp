@@ -174,10 +174,25 @@
            (check (null (image-daemon:daemon-runtime-notify runtime))))
       (image-daemon:daemon-runtime-stop runtime))))
 
+(-> test-package-reload () t)
+(defun test-package-reload ()
+  "Keep the canonical package idempotent after loading the optional APIs."
+  (handler-bind ((warning #'error))
+    (load (asdf:system-relative-pathname "image-daemon" "src/package.lisp")
+          :verbose nil :print nil))
+  (dolist (name '("DAEMON-RUNTIME-READ-REQUEST" "DAEMON-RUNTIME-CLIENT-LIMIT"
+                  "DAEMON-RUNTIME-SET-TIMER" "DAEMON-RUNTIME-NOTIFY"
+                  "MESSAGE-RUNTIME" "DAEMON-MESSAGE-ENDPOINT-CREATE"
+                  "DAEMON-MESSAGE-HANDLE-REQUEST" "DAEMON-MESSAGE-CALL"
+                  "DAEMON-MESSAGE-ERROR" "DAEMON-MESSAGE-ERROR-REASON"))
+    (check (eq (nth-value 1 (find-symbol name "IMAGE-DAEMON")) :external)))
+  t)
+
 (-> run-tests () t)
 (defun run-tests ()
   "Run actual subprocess transport and existing-loop timer checks."
   (let ((*checks* 0))
+    (test-package-reload)
     (test-timers)
     (test-client-capacity)
     (test-process-transport)

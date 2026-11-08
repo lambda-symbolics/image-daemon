@@ -23,8 +23,9 @@
            (mode :initarg :mode :reader attachment-mode :type
             (member :read-only :control :take-over) :documentation
             "The observation or terminal-control authority of this attachment.")
-           (transport-lock :initform (or *daemon-client-transport-lock*
-                                        (bordeaux-threads:make-lock "Image daemon transport"))
+           (transport-lock :initarg :transport-lock
+            :initform               (or *daemon-client-transport-lock*
+                                                      (bordeaux-threads:make-lock "Image daemon transport"))
             :reader attachment-transport-lock :documentation
             "Serializes native shutdown and close with runtime cleanup.")
            (lock :initform (bordeaux-threads:make-lock "Image daemonp attachment")
@@ -47,9 +48,17 @@
             :documentation "The bounded asynchronous output writer."))
           (:documentation "One persistent read-only or controlling terminal attachment."))
 
-(-> attachment--shutdown-socket (attachment) null)
-(defun attachment--shutdown-socket (attachment)
-  "Shut down ATTACHMENT once, serialized with every transport closer."
+(defgeneric attachment-packet-string (attachment packet)
+  (:documentation "Encode PACKET for ATTACHMENT before acquiring its queue lock."))
+
+(defmethod attachment-packet-string ((attachment attachment) packet)
+  "Encode PACKET using the ordinary daemon framing policy."
+  (declare (ignore attachment))
+  (daemon-packet-string packet))
+
+(-> attachment-shutdown (attachment) null)
+(defun attachment-shutdown (attachment)
+  "Shut down ATTACHMENT's socket once under its shared transport lock."
   (bordeaux-threads:with-lock-held ((attachment-transport-lock attachment))
     (unless (attachment-socket-shutdown-p attachment)
       (setf (attachment-socket-shutdown-p attachment) t)
@@ -58,106 +67,147 @@
        (sb-bsd-sockets:socket-shutdown (attachment-socket attachment) :direction ':io))))
   nil)
 
-(-> attachment--close-stream (attachment) null)
-(defun attachment--close-stream (attachment)
-  "Shut down and abortively close ATTACHMENT once under its transport lock."
-  (attachment--shutdown-socket attachment)
+(defgeneric attachment-release-transport (attachment)
+  (:documentation "Release ATTACHMENT's transport outside its queue lock.
+
+Called on writer exit and by lifecycle operations, possibly repeatedly and
+concurrently. Methods must be idempotent and synchronize with the transport
+owner. The default shuts down and abortively closes the owned stream; a method
+for borrowed transport must leave closure to its owner. Do not join the writer
+from a method, which can run in that writer's unwind cleanup."))
+
+(defmethod attachment-release-transport ((attachment attachment))
+  "Shut down and abortively close owned transport once under its shared lock."
+  (attachment-shutdown attachment)
   (bordeaux-threads:with-lock-held ((attachment-transport-lock attachment))
     (unless (attachment-stream-closed-p attachment)
-      ; mallet:suppress no-ignore-errors -- an abortive close of a broken stream must not stop teardown
-      (ignore-errors
-       (close (attachment-stream attachment) :abort t)
-       (setf (attachment-stream-closed-p attachment) t))))
+      (setf (attachment-stream-closed-p attachment) t)
+      ; mallet:suppress no-ignore-errors -- broken transport must not stop teardown
+      (ignore-errors (close (attachment-stream attachment) :abort t))))
   nil)
 
 (-> attachment--writer-loop (attachment) null)
 (defun attachment--writer-loop (attachment)
-  "Write ATTACHMENT's queued packets until closure or transport failure."
-  (block write-packets
-    (handler-case
-     (loop for packet = (bordeaux-threads:with-lock-held ((attachment-lock attachment))
-                          (loop while (and
-                                       (structlisp:deque-empty-p
-                                        (attachment-queue attachment))
-                                       (not (attachment-closed-p attachment)))
-                                do (bordeaux-threads:condition-wait
-                                    (attachment-condition-variable attachment)
-                                    (attachment-lock attachment)))
-                          (when
-                              (and (attachment-closed-p attachment)
-                                   (structlisp:deque-empty-p
-                                    (attachment-queue attachment)))
-                            (return-from write-packets nil))
-                          (structlisp:deque-pop-front (attachment-queue attachment)))
-           do (write-string packet (attachment-stream attachment)) (finish-output
-                                                                    (attachment-stream
-                                                                     attachment)))
-     (error nil nil)))
-  (bordeaux-threads:with-lock-held ((attachment-lock attachment))
-    (setf (attachment-closed-p attachment) t)
-    (structlisp:deque-clear (attachment-queue attachment))
-    (bordeaux-threads:condition-notify (attachment-condition-variable attachment)))
-  (attachment--close-stream attachment)
+  "Write queued packets and release transport on every exit, including termination."
+  (unwind-protect
+       (block write-packets
+         (handler-case
+             (loop
+               for packet =
+                 (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+                   (loop while (and (structlisp:deque-empty-p (attachment-queue attachment))
+                                    (not (attachment-closed-p attachment)))
+                         do (bordeaux-threads:condition-wait
+                             (attachment-condition-variable attachment)
+                             (attachment-lock attachment)))
+                   (when (structlisp:deque-empty-p (attachment-queue attachment))
+                     (return-from write-packets nil))
+                   (structlisp:deque-pop-front (attachment-queue attachment)))
+               do (write-string packet (attachment-stream attachment))
+                  (finish-output (attachment-stream attachment)))
+           (error () nil)))
+    (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+      (setf (attachment-closed-p attachment) t)
+      (structlisp:deque-clear (attachment-queue attachment))
+      (bordeaux-threads:condition-notify (attachment-condition-variable attachment)))
+    (attachment-release-transport attachment))
   nil)
+
+(-> attachment-start (attachment) attachment)
+(defun attachment-start (attachment)
+  "Start ATTACHMENT once, including a sealed queue awaiting its final drain.
+
+An abortively closed or overflowed attachment has no queued output and cannot
+start. Admission, start and close share the queue lock. Failed startup closes
+admission and releases transport outside that lock. Return ATTACHMENT."
+  (let ((completed-p nil))
+    (unwind-protect
+         (progn
+           (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+             (when (and (null (attachment-writer-thread attachment))
+                        (or (not (attachment-closed-p attachment))
+                            (not (structlisp:deque-empty-p (attachment-queue attachment)))))
+               (setf (attachment-writer-thread attachment)
+                     (bordeaux-threads:make-thread
+                      (lambda () (attachment--writer-loop attachment))
+                      :name "Image daemon attachment output"))))
+           (setf completed-p t))
+      (unless completed-p (attachment-close attachment))))
+  attachment)
 
 (-> attachment-create (sb-bsd-sockets:socket stream keyword) attachment)
 (defun attachment-create (socket stream mode)
-  "Create a persistent attachment over SOCKET and STREAM with MODE."
-  (let ((attachment (make-instance 'attachment :socket socket :stream stream :mode mode)))
-    (setf (attachment-writer-thread attachment)
-          (bordeaux-threads:make-thread
-           (lambda () (attachment--writer-loop attachment)) :name
-           "Image daemonp attachment output"))
-    attachment))
+  "Construct and start an attachment over SOCKET and STREAM with MODE."
+  (attachment-start (make-instance 'attachment :socket socket :stream stream :mode mode)))
+
+(-> attachment-try-send (attachment t) (member :accepted :closed :overflow))
+(defun attachment-try-send (attachment packet)
+  "Encode and admit PACKET without releasing transport or joining any thread.
+
+Return :ACCEPTED, :CLOSED or :OVERFLOW. Overflow closes admission, discards pending
+output and wakes the writer; the caller owns cleanup of a deferred attachment."
+  (let ((text (attachment-packet-string attachment packet)))
+    (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+      (cond
+        ((attachment-closed-p attachment)
+         ':closed)
+        ((> (+ (structlisp:deque-total-weight (attachment-queue attachment)) (length text))
+            *attachment-queue-character-limit*)
+         (setf (attachment-closed-p attachment) t)
+         (structlisp:deque-clear (attachment-queue attachment))
+         (bordeaux-threads:condition-notify (attachment-condition-variable attachment))
+         ':overflow)
+        (t
+         (structlisp:deque-push-back (attachment-queue attachment) text)
+         (bordeaux-threads:condition-notify (attachment-condition-variable attachment))
+         ':accepted)))))
 
 (-> attachment-send (attachment t) boolean)
 (defun attachment-send (attachment packet)
-  "Queue PACKET for ATTACHMENT, closing a client that falls too far behind."
-  (let ((text (daemon-packet-string packet)) (accepted-p nil) (close-p nil))
-    (bordeaux-threads:with-lock-held ((attachment-lock attachment))
-      (unless (attachment-closed-p attachment)
-        (let ((queue (attachment-queue attachment)))
-          (if (> (+ (structlisp:deque-total-weight queue) (length text))
-                 *attachment-queue-character-limit*)
-              (progn
-               (setf (attachment-closed-p attachment) t
-                     close-p t)
-               (structlisp:deque-clear queue))
-              (progn (structlisp:deque-push-back queue text) (setf accepted-p t))))
-        (bordeaux-threads:condition-notify (attachment-condition-variable attachment))))
-    (when close-p (attachment--shutdown-socket attachment))
-    accepted-p))
+  "Queue PACKET, releasing transport outside the queue lock on overflow."
+  (let ((status (attachment-try-send attachment packet)))
+    (when (eq status ':overflow)
+      (attachment-release-transport attachment))
+    (eq status ':accepted)))
 
 (-> attachment-close (attachment) null)
 (defun attachment-close (attachment)
-  "Close ATTACHMENT and join its writer when called from another thread."
+  "Discard pending output, release transport and reap ATTACHMENT's writer."
   (let ((writer nil))
     (bordeaux-threads:with-lock-held ((attachment-lock attachment))
       (setf (attachment-closed-p attachment) t
             writer (attachment-writer-thread attachment))
       (structlisp:deque-clear (attachment-queue attachment))
       (bordeaux-threads:condition-notify (attachment-condition-variable attachment)))
-    (attachment--close-stream attachment)
+    (attachment-release-transport attachment)
     (when writer (daemon-stop-thread writer)))
+  nil)
+
+(-> attachment-seal (attachment t) null)
+(defun attachment-seal (attachment packet)
+  "Close admission and append final PACKET, bypassing capacity, without cleanup.
+
+Previously queued packets retain FIFO order. A closed attachment is unchanged."
+  (let ((text (attachment-packet-string attachment packet)))
+    (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+      (unless (attachment-closed-p attachment)
+        (structlisp:deque-push-back (attachment-queue attachment) text)
+        (setf (attachment-closed-p attachment) t))
+      (bordeaux-threads:condition-notify (attachment-condition-variable attachment))))
   nil)
 
 (-> attachment-finish (attachment t) null)
 (defun attachment-finish (attachment packet)
-  "Send PACKET as ATTACHMENT's last packet, then reap its writer and close it.
+  "Seal ATTACHMENT, start any deferred drain, reap its writer and release transport.
 
-Unlike ATTACHMENT-CLOSE, already queued output and PACKET are delivered before
-the stream closes; a client that stops reading is cut off at the writer's stop
-deadline."
-  (let ((writer nil))
-    (bordeaux-threads:with-lock-held ((attachment-lock attachment))
-      (unless (attachment-closed-p attachment)
-        (structlisp:deque-push-back (attachment-queue attachment)
-                                    (daemon-packet-string packet))
-        (setf (attachment-closed-p attachment) t))
-      (setf writer (attachment-writer-thread attachment))
-      (bordeaux-threads:condition-notify (attachment-condition-variable attachment)))
-    (when writer (daemon-stop-thread writer))
-    (attachment--close-stream attachment))
+An unread peer can lose queued output at the bounded stop deadline. Reaping
+failures propagate; the retained writer can be reaped by retrying."
+  (attachment-seal attachment packet)
+  (attachment-start attachment)
+  (let ((writer (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+                  (attachment-writer-thread attachment))))
+    (unwind-protect (when writer (daemon-stop-thread writer))
+      (attachment-release-transport attachment)))
   nil)
 
 (defclass relay (transport)

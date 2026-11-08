@@ -14,6 +14,7 @@
                 #:attachment-close
                 #:attachment-closed-p
                 #:attachment-create
+                #:attachment-finish
                 #:attachment-lock
                 #:attachment-queue
                 #:attachment-send

@@ -97,6 +97,12 @@ evaluation endpoints for Lisp image daemons.")
            #:attachment-writer-thread
            #:attachment
            #:attachment-create
+           #:attachment-start
+           #:attachment-packet-string
+           #:attachment-release-transport
+           #:attachment-shutdown
+           #:attachment-try-send
+           #:attachment-seal
            #:attachment-send
            #:attachment-close
            #:attachment-finish

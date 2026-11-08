@@ -471,3 +471,171 @@
       (check (string= (get-output-stream-string output)
                       (if stop-p "before" "beforeafter"))
              "the host decides whether reception continues"))))
+
+(defclass borrowed-attachment (attachment)
+  ((released-p :initform nil :accessor borrowed-attachment-released-p
+               :documentation "Whether cleanup acquired the queue lock successfully."))
+  (:documentation "A formatted attachment whose stream belongs to another owner."))
+
+(defmethod image-daemon:attachment-packet-string ((attachment borrowed-attachment) packet)
+  "Add an application-specific terminator without ordinary daemon framing."
+  (declare (ignore attachment))
+  (concatenate 'string packet "!"))
+
+(defmethod image-daemon:attachment-release-transport ((attachment borrowed-attachment))
+  "Release socket I/O and membership without closing the owner's stream."
+  (image-daemon:attachment-shutdown attachment)
+  (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+    (setf (borrowed-attachment-released-p attachment) t))
+  nil)
+
+(-> test-attachment-composition () t)
+(defun test-attachment-composition ()
+  "Exercise deferred FIFO drain, bounded admission and borrowed transport ownership."
+  (let* ((socket     (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
+         (stream     (make-string-output-stream))
+         (lock       (bordeaux-threads:make-lock "Borrowed transport"))
+         (attachment (make-instance 'borrowed-attachment :socket socket :stream stream
+                                    :mode ':read-only :transport-lock lock)))
+    (unwind-protect
+         (progn
+           (check (eq lock (image-daemon::attachment-transport-lock attachment))
+                  "the owner supplies its shared transport lock")
+           (check (eq ':accepted (image-daemon:attachment-try-send attachment "first"))
+                  "custom formatting admits a deferred packet")
+           (check (null (attachment-writer-thread attachment))
+                  "construction and queueing do not start a writer")
+           (let ((*attachment-queue-character-limit* 0))
+             (image-daemon:attachment-seal attachment "last"))
+           (check (and (null (borrowed-attachment-released-p attachment))
+                       (eq ':closed (image-daemon:attachment-try-send attachment "late")))
+                  "seal bypasses capacity and closes admission without cleanup")
+           (attachment-finish attachment "duplicate")
+           (check (string= "first!last!" (get-output-stream-string stream))
+                  "finish starts the sealed queue and drains it in FIFO order exactly once")
+           (check (and (borrowed-attachment-released-p attachment)
+                       (open-stream-p stream)
+                       (not (sb-thread:thread-alive-p (attachment-writer-thread attachment))))
+                  "writer exit releases borrowed ownership without closing its stream")
+           (attachment-close attachment)
+           (check (open-stream-p stream) "repeated lifecycle cleanup respects borrowed ownership"))
+      (attachment-close attachment)
+      (close stream)
+      (sb-bsd-sockets:socket-close socket)))
+  (dolist (send-function (list #'image-daemon:attachment-try-send #'attachment-send))
+    (let* ((socket     (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
+           (stream     (make-string-output-stream))
+           (attachment (make-instance 'borrowed-attachment :socket socket :stream stream
+                                      :mode ':read-only)))
+      (unwind-protect
+           (progn
+             (image-daemon:attachment-try-send attachment "old")
+             (let ((*attachment-queue-character-limit* 1))
+               (check (eq (if (eq send-function #'attachment-send) nil ':overflow)
+                          (funcall send-function attachment "large"))
+                      "overflow reports the appropriate status"))
+             (check (and (attachment-closed-p attachment)
+                         (structlisp:deque-empty-p (attachment-queue attachment))
+                         (eq (not (null (borrowed-attachment-released-p attachment)))
+                             (eq send-function #'attachment-send)))
+                    "only Boolean send releases transport synchronously, outside the queue lock")
+             (check (eq ':closed (image-daemon:attachment-try-send attachment "late"))
+                    "admission after overflow reports closed")
+             (image-daemon:attachment-start attachment)
+             (check (null (attachment-writer-thread attachment))
+                    "overflow prevents deferred writer launch"))
+        (attachment-close attachment)
+        (close stream)
+        (sb-bsd-sockets:socket-close socket)))))
+
+(-> test-attachment-deferred-lifecycle () t)
+(defun test-attachment-deferred-lifecycle ()
+  "Race start with abortive close and finish, and exercise writer unwind cleanup."
+  (dolist (operation (list #'attachment-close
+                          (lambda (attachment) (attachment-finish attachment "final"))))
+    (dotimes (iteration 20)
+      (declare (ignorable iteration))
+      (let* ((socket     (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
+             (stream     (make-string-output-stream))
+             (attachment (make-instance 'borrowed-attachment :socket socket :stream stream
+                                        :mode ':read-only))
+             (gate       (sb-thread:make-semaphore))
+             (starter    (sb-thread:make-thread
+                          (lambda ()
+                            (sb-thread:wait-on-semaphore gate)
+                            (image-daemon:attachment-start attachment)))))
+        (unwind-protect
+             (progn
+               (sb-thread:signal-semaphore gate)
+               (funcall operation attachment)
+               (daemon-stop-thread starter)
+               (image-daemon:attachment-start attachment)
+               (check (and (attachment-closed-p attachment)
+                           (borrowed-attachment-released-p attachment)
+                           (or (null (attachment-writer-thread attachment))
+                               (not (sb-thread:thread-alive-p
+                                     (attachment-writer-thread attachment)))))
+                      "concurrent start and lifecycle cleanup leave no live writer"))
+          (attachment-close attachment)
+          (close stream)
+          (sb-bsd-sockets:socket-close socket)))))
+  (dolist (failure-p '(nil t))
+    (let* ((socket     (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
+           (stream     (make-string-output-stream))
+           (attachment (make-instance 'borrowed-attachment :socket socket :stream stream
+                                      :mode ':read-only)))
+      (unwind-protect
+           (progn
+             (when failure-p
+               (close stream)
+               (image-daemon:attachment-try-send attachment "broken"))
+             (image-daemon:attachment-start attachment)
+             (daemon-stop-thread (attachment-writer-thread attachment))
+             (check (and (borrowed-attachment-released-p attachment)
+                         (attachment-closed-p attachment))
+                    "both forced termination and write failure run writer cleanup"))
+        (attachment-close attachment)
+        (close stream)
+        (sb-bsd-sockets:socket-close socket)))))
+
+(-> test-attachment-start-failure () t)
+(defun test-attachment-start-failure ()
+  "Require failed thread creation to propagate after releasing transport ownership."
+  (dolist (operation '(:start :finish :create))
+    (let* ((socket     (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
+           (stream     (make-string-output-stream))
+           (attachment (make-instance 'borrowed-attachment :socket socket :stream stream
+                                      :mode ':read-only))
+           (failure    (make-condition 'simple-error :format-control "Injected startup failure")))
+      (unwind-protect
+           (progn
+             (image-daemon:attachment-try-send attachment "queued")
+             (call-with-replacements
+              (list (list 'bordeaux-threads:make-thread
+                          (lambda (&rest arguments)
+                            (declare (ignore arguments))
+                            (error failure))))
+              (lambda ()
+                (check (eq failure
+                           (handler-case
+                               (ecase operation
+                                 (:start
+                                  (image-daemon:attachment-start attachment))
+                                 (:finish
+                                  (attachment-finish attachment "last"))
+                                 (:create
+                                  (attachment-create socket stream ':read-only)))
+                             (error (condition) condition)))
+                       "startup propagates the identical thread creation condition")))
+             (if (eq operation ':create)
+                 (check (not (open-stream-p stream))
+                        "construct-and-start releases its default owned transport on failure")
+                 (check (and (attachment-closed-p attachment)
+                             (borrowed-attachment-released-p attachment)
+                             (structlisp:deque-empty-p (attachment-queue attachment))
+                             (null (attachment-writer-thread attachment))
+                             (open-stream-p stream))
+                        "failed startup closes admission and releases borrowed ownership outside locks")))
+        (attachment-close attachment)
+        (close stream)
+        (sb-bsd-sockets:socket-close socket)))))

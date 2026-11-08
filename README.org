@@ -81,6 +81,24 @@ thread. Return true from that callback to end the attachment.
 Attachment handshakes include =:history-start= and =:history-position= character
 positions for replaying output produced during a reconnect.
 
+For application-specific output, subclass =ATTACHMENT= and specialize
+=ATTACHMENT-PACKET-STRING=. Construct with =MAKE-INSTANCE= to queue greeting and
+replay before calling =ATTACHMENT-START=. Supply =:TRANSPORT-LOCK= when sharing
+transport with an external owner. Specialize =ATTACHMENT-RELEASE-TRANSPORT= for
+borrowed transport: call =ATTACHMENT-SHUTDOWN= to unblock I/O, remove membership
+idempotently, and leave stream closure to its owner. Release methods run outside
+the queue lock on every writer exit and may run repeatedly or concurrently.
+
+=ATTACHMENT-TRY-SEND= returns =:ACCEPTED=, =:CLOSED= or =:OVERFLOW= without
+synchronous transport cleanup. Overflow discards pending output and wakes the
+writer; explicitly close a deferred attachment after overflow.
+=ATTACHMENT-SEND= retains its Boolean API and releases transport on overflow.
+=ATTACHMENT-SEAL= appends one final packet beyond the ordinary capacity and
+closes admission without starting or reaping a writer. =ATTACHMENT-FINISH=
+seals, starts a deferred drain, reaps with a bounded deadline and releases
+transport. An unread peer can lose pending output. Reaping failures propagate
+and retain the writer for retry.
+
 When the hosted application is about to exit with a status its launcher acts on,
 call =RELAY-FINISH= with that status and an optional message. Every client
 receives it after the output already queued for it, and =DAEMON-ATTACH-CLIENT-RUN=

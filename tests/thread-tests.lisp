@@ -101,7 +101,7 @@
 (-> test-thread-stop-deadline () t)
 (defun test-thread-stop-deadline ()
   "Exercise bounded termination and attachment/runtime ownership on failure."
-  (dolist (owner '(:thread :attachment :runtime))
+  (dolist (owner '(:thread :attachment :finish :runtime))
     (call-with-blocked-thread-cleanup
      (lambda (thread cleanup-started release-cleanup)
        (let* ((socket     (make-instance 'sb-bsd-sockets:inet-socket
@@ -125,6 +125,8 @@
                             (daemon-stop-thread thread))
                            (:attachment
                             (attachment-close attachment))
+                           (:finish
+                            (attachment-finish attachment '(:exit :status 0)))
                            (:runtime
                             (daemon-runtime-stop runtime)))))
                   (check-blocked-thread-stop thread :cleanup-started cleanup-started

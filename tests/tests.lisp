@@ -110,33 +110,50 @@
 
 (-> test-response-deadline () t)
 (defun test-response-deadline ()
-  "Test required responses stop at the transport deadline."
-  (multiple-value-bind (read-descriptor write-descriptor)
-      (sb-posix:pipe)
-    (let ((input nil))
+  "Test unanswered sockets respect both the transport and an earlier caller deadline."
+  (dolist (limits '((0.05 nil) (10 0.05)))
+    (let ((listener (make-instance 'sb-bsd-sockets:inet-socket
+                                   :type ':stream :protocol ':tcp))
+          (socket   nil)
+          (stream   nil)
+          (reader   nil)
+          (failure  nil)
+          (done     (sb-thread:make-semaphore)))
       (unwind-protect
            (progn
-             (setf input
-                   (sb-sys:make-fd-stream
-                    read-descriptor
-                    :input           t
-                    :element-type    'character
-                    :external-format ':utf-8
-                    :buffering       ':none
-                    :auto-close      nil))
-             (let ((*daemon-connect-timeout-seconds* 0.05))
-               (handler-case
-                   (progn
-                     (daemon-read-response input ':status)
-                     (check nil "expected a deadline failure"))
-                 (daemon-error (condition)
-                   (check (search "did not respond in time"
-                                  (daemon-error-message condition))
-                          "response reads stop at the transport deadline")))))
-        (when input
-          (ignore-errors (close input)))
-        (ignore-errors (sb-posix:close read-descriptor))
-        (ignore-errors (sb-posix:close write-descriptor))))))
+             (sb-bsd-sockets:socket-bind
+              listener (sb-bsd-sockets:make-inet-address "127.0.0.1") 0)
+             (sb-bsd-sockets:socket-listen listener 4)
+             (setf (values socket stream)
+                   (daemon-connect (nth-value 1 (sb-bsd-sockets:socket-name listener))))
+             (setf reader
+                   (bordeaux-threads:make-thread
+                    (lambda ()
+                      (let ((*daemon-connect-timeout-seconds* (first limits)))
+                        (unwind-protect
+                             (handler-case
+                                 (if (second limits)
+                                     (sb-sys:with-deadline (:seconds (second limits))
+                                       (daemon-read-response stream ':status))
+                                     (daemon-read-response stream ':status))
+                               (serious-condition (condition)
+                                 (setf failure condition)))
+                          (sb-thread:signal-semaphore done))))
+                    :name "Image daemon response deadline test"))
+             (check (sb-thread:wait-on-semaphore done :timeout 2)
+                    "response read stops before the watchdog with limits ~S" limits)
+             (bordeaux-threads:join-thread reader)
+             (check (typep failure 'daemon-error)
+                    "response timeout signals a daemon condition, got ~S" failure)
+             (check (and (eq (daemon-error-operation failure) ':status)
+                         (typep (daemon-error-cause failure) 'sb-ext:timeout))
+                    "response timeout preserves its operation and typed cause"))
+        (daemon-stop-thread reader)
+        (when stream
+          (ignore-errors (close stream :abort t)))
+        (when socket
+          (ignore-errors (sb-bsd-sockets:socket-close socket :abort t)))
+        (sb-bsd-sockets:socket-close listener)))))
 
 (-> run-tests () t)
 (defun run-tests ()

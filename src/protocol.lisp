@@ -249,11 +249,20 @@ detached handoff."
   "Read one required response within the daemon transport deadline."
   (handler-case
       (sb-sys:with-deadline (:seconds *daemon-connect-timeout-seconds*)
-        (or (daemon-read-packet stream)
-            (daemon-fail
-             :message   "The daemon endpoint closed without a response."
-             :operation operation)))
-    (sb-sys:deadline-timeout (condition)
+        (flet ((read-response ()
+                 "Read and require one complete response frame."
+                 (or (daemon-read-packet stream)
+                     (daemon-fail
+                      :message   "The daemon endpoint closed without a response."
+                      :operation operation))))
+          #-win32 (read-response)
+          ;; Windows socket reads bypass SBCL's deadline-aware readiness wait.
+          ;; Interrupt the read without extending an enclosing deadline.
+          #+win32
+          (multiple-value-bind (seconds microseconds) (sb-sys:decode-timeout nil)
+            (sb-ext:with-timeout (+ seconds (/ microseconds 1000000))
+              (read-response)))))
+    (sb-ext:timeout (condition)
       (daemon-fail
        :message   "The daemon endpoint did not respond in time."
        :operation operation

@@ -2,9 +2,6 @@
 
 ;;;; -- Bounded Message Endpoint Transport --
 
-(export '(message-runtime daemon-message-endpoint-create daemon-message-handle-request
-          daemon-message-call daemon-message-error daemon-message-error-reason))
-
 (define-condition daemon-message-error (daemon-error)
   ((reason :initarg :reason :reader daemon-message-error-reason
            :documentation "A non-secret transport or remote rejection reason."))

@@ -37,9 +37,6 @@
                    :documentation "Optional callback for accept-loop failures."))
   (:documentation "One local service with explicitly owned transport resources."))
 
-(export '(daemon-runtime-read-request daemon-runtime-client-limit
-          daemon-runtime-set-timer daemon-runtime-notify))
-
 (defgeneric daemon-runtime-request-valid-p (runtime request)
   (:documentation "Return true when RUNTIME accepts REQUEST's protocol and capability."))
 

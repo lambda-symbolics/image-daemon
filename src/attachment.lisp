@@ -414,10 +414,14 @@ failures propagate; the retained writer can be reaped by retrying."
 
 (-> relay-attach
     (relay attachment &key (:rows (or null integer)) (:columns (or null integer)) (:styled-p t)
-                     (:session-id t))
-    (values boolean boolean))
-(defun relay-attach (transport attachment &key rows columns styled-p session-id)
-  "Attach ATTACHMENT after queueing its handshake and report direct release."
+                     (:session-id t) (:defer-revocation-p boolean))
+    (values boolean boolean (or null attachment)))
+(defun relay-attach (transport attachment &key rows columns styled-p session-id defer-revocation-p)
+  "Attach ATTACHMENT after queueing its handshake and report direct release.
+
+Return success, whether a direct terminal was released, and a replaced controller
+when DEFER-REVOCATION-P is true. The caller must send its revocation and close it
+outside any shared transport lock. Otherwise revoke and close it before returning."
   (let ((mode              (attachment-mode attachment))
         (old-controller    nil)
         (direct            nil)
@@ -448,7 +452,7 @@ failures propagate; the retained writer can be reaped by retrying."
                    :history-start    (- (relay-history-position transport) (length history))
                    :history-position (relay-history-position transport)
                    :rows next-rows :columns next-columns))
-          (return-from relay-attach (values nil nil)))
+          (return-from relay-attach (values nil nil nil)))
         (ecase mode
           (:read-only
            (pushnew attachment (relay-observers transport) :test #'eq))
@@ -468,10 +472,13 @@ failures propagate; the retained writer can be reaped by retrying."
            styled-p))))
     ; mallet:suppress no-ignore-errors -- a failing terminal restore must not keep the relay from releasing it
     (when direct (ignore-errors (transport-stop direct)))
-    (when (and old-controller (not (eq old-controller attachment)))
+    (when (and old-controller (not (eq old-controller attachment))
+               (not defer-revocation-p))
       (attachment-send old-controller '(:revoked))
       (attachment-close old-controller))
-    (values t released-direct-p)))
+    (values t released-direct-p
+            (when (and defer-revocation-p (not (eq old-controller attachment)))
+              old-controller))))
 
 (-> relay-detach (relay attachment) boolean)
 (defun relay-detach (transport attachment)

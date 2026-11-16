@@ -71,6 +71,11 @@ the relay lock, so a host resize method should publish to its UI thread without
 reacquiring that lock. Hosts decide when input readers may pause and whether
 releasing a foreground terminal requires process handoff.
 
+When holding a runtime's transport lock during admission, pass
+=:defer-revocation-p t= to =RELAY-ATTACH=. Its third value is the replaced
+controller, if any. After releasing the lock, revoke and close that attachment,
+for example with =(attachment-finish previous '(:revoked))=.
+
 =ATTACHMENT-CREATE= owns an asynchronous output writer. Pending output and replay
 have independent character limits. On overflow, shut down socket I/O before
 abortive stream close and join the writer with a bounded wait. The client-side

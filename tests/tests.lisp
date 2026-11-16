@@ -182,6 +182,7 @@
   (test-runtime-ephemeral-failures)
   (test-runtime-start-rollback)
   (test-relay-authority)
+  (test-relay-deferred-revocation)
   (test-handoff-tickets)
   #-win32 (test-handoff-supervised-launch)
   (test-handoff-endpoint-readiness)

@@ -463,3 +463,76 @@
         (when runtime (daemon-runtime-stop runtime))
         (uiop/filesystem:delete-directory-tree root :validate     t
                                                :if-does-not-exist ':ignore)))))
+
+(-> test-relay-deferred-revocation () t)
+(defun test-relay-deferred-revocation ()
+  "Exercise default and deferred takeover over runtime-owned sockets."
+  (dolist (defer-p '(nil t))
+    (let ((relay (relay-create)) (runtime nil) (clients nil) (original nil)
+          (deferred-open-p nil) (failures nil))
+      (labels ((respond (owner request &key socket stream)
+                 "Serve one persistent attachment with the selected cleanup policy."
+                 (let* ((mode       (getf (getf (rest request) :arguments) :mode))
+                        (attachment (attachment-create socket stream mode))
+                        (replaced   nil))
+                   (when (eq mode ':control) (setf original attachment))
+                   (unwind-protect
+                        (progn
+                          (if defer-p
+                              (bordeaux-threads:with-lock-held ((daemon-runtime-lock owner))
+                                (multiple-value-bind (attached-p direct-p previous)
+                                    (relay-attach relay attachment :rows 24 :columns 80
+                                                  :defer-revocation-p t)
+                                  (declare (ignore direct-p))
+                                  (unless attached-p (error "Attachment refused"))
+                                  (setf replaced previous)
+                                  (when replaced
+                                    (setf deferred-open-p (not (attachment-closed-p replaced))))))
+                              (relay-attach relay attachment :rows 24 :columns 80))
+                          (when replaced
+                            (attachment-finish replaced '(:revoked)))
+                          (image-daemon:relay-read-attachment relay attachment))
+                     (relay-detach relay attachment)
+                     (attachment-close attachment))))
+
+               (connect (mode)
+                 "Open an authenticated attachment and read its handshake."
+                 (multiple-value-bind (socket stream)
+                     (daemon-connect (daemon-runtime-port runtime))
+                   (push (cons socket stream) clients)
+                   (daemon-write-packet
+                    stream (list :localgroup-request :version image-daemon:*daemon-protocol-version*
+                                 :token "takeover" :operation ':attach
+                                 :arguments          (list :mode mode)))
+                   (check (eq (first (daemon-read-response stream ':attach)) ':attached)
+                          "the controlling client receives its handshake")
+                   stream)))
+        (unwind-protect
+             (progn
+               (setf runtime (daemon-runtime-create
+                              :publish-p nil :token "takeover" :request-function #'respond
+                              :error-function (lambda (condition) (push condition failures))))
+               (transport-start relay)
+               (daemon-runtime-start runtime)
+               (let ((old-stream  (connect ':control))
+                     (next-stream (connect ':take-over)))
+                 (daemon-write-packet next-stream '(:event #\y))
+                 (check (eql (sb-sys:with-deadline (:seconds 2) (transport-read-event relay)) #\y)
+                        "replacement input is served after takeover cleanup")
+                 (check (attachment-closed-p original)
+                        "takeover closes the replaced attachment")
+                 (check (eq deferred-open-p defer-p)
+                        "deferred revocation returns a live old controller before lock release")
+                 (when defer-p
+                   (check (eq (first (daemon-read-response old-stream ':attach)) ':revoked)
+                          "cleanup outside the runtime lock delivers revocation"))
+                 (check (null failures) "takeover never recursively acquires the runtime lock")
+                 (daemon-write-packet next-stream '(:detach))))
+          (dolist (client clients)
+            ; mallet:suppress no-ignore-errors -- peers may already be revoked
+            (ignore-errors (close (rest client) :abort t))
+            ; mallet:suppress no-ignore-errors -- stream closure may have closed its socket
+            (ignore-errors (sb-bsd-sockets:socket-close (first client))))
+          (when runtime (daemon-runtime-stop runtime))
+          (transport-stop relay)))))
+  t)

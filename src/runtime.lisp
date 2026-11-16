@@ -102,6 +102,27 @@ start until DAEMON-RUNTIME-START."
                  :operation ':create))
   (when publish-p
     (daemon-registry-reconcile directory))
+  (multiple-value-bind (listener port) (daemon-runtime--open-listener)
+    (let ((completed-p nil))
+      (unwind-protect
+           (prog1
+               (apply #'make-instance class
+                      :identifier identifier :publish-p publish-p
+                      :token             (or token (daemon-random-token))
+                      :listener listener :port port
+                      :registry-pathname (and publish-p
+                                              (daemon-registry-pathname directory identifier))
+                      :created-at        (or created-at (get-universal-time))
+                      :request-function request-function :error-function error-function
+                      initargs)
+             (setf completed-p t))
+        (unless completed-p
+          ; mallet:suppress no-ignore-errors -- closing the unused listener must not mask the creation failure
+          (ignore-errors (sb-bsd-sockets:socket-close listener)))))))
+
+(-> daemon-runtime--open-listener () (values sb-bsd-sockets:inet-socket (integer 1 65535)))
+(defun daemon-runtime--open-listener ()
+  "Open a loopback listener and return its socket and allocated port."
   (let ((listener    (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
         (completed-p nil))
     (unwind-protect
@@ -112,19 +133,10 @@ start until DAEMON-RUNTIME-START."
            (sb-bsd-sockets:socket-listen listener 16)
            (multiple-value-bind (address port) (sb-bsd-sockets:socket-name listener)
              (declare (ignore address))
-             (prog1
-                 (apply #'make-instance class
-                        :identifier identifier :publish-p publish-p
-                        :token             (or token (daemon-random-token))
-                        :listener listener :port port
-                        :registry-pathname (and publish-p
-                                                (daemon-registry-pathname directory identifier))
-                        :created-at        (or created-at (get-universal-time))
-                        :request-function request-function :error-function error-function
-                        initargs)
-               (setf completed-p t))))
+             (setf completed-p t)
+             (values listener port)))
       (unless completed-p
-        ; mallet:suppress no-ignore-errors -- closing the unused listener must not mask the creation failure
+        ; mallet:suppress no-ignore-errors -- closing the unused listener must not mask the bind failure
         (ignore-errors (sb-bsd-sockets:socket-close listener))))))
 
 (defgeneric daemon-runtime-read-request (runtime stream)
@@ -183,8 +195,9 @@ start until DAEMON-RUNTIME-START."
 Return T after acknowledgement, or NIL when not started/stopping. No host request
 callback is invoked. The accept loop then recomputes its next deadline."
   (let ((server (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
-                  (and (not (daemon-runtime-stopping-p runtime))
-                       (daemon-runtime-server-thread runtime)))))
+                  (let ((thread (daemon-runtime-server-thread runtime)))
+                    (and (not (daemon-runtime-stopping-p runtime))
+                         thread (bordeaux-threads:thread-alive-p thread) thread)))))
     (unless server (return-from daemon-runtime-notify nil))
     ;; The accept-loop callback will recompute deadlines on its own return.
     (when (eq server (bordeaux-threads:current-thread))
@@ -212,6 +225,15 @@ start or update live; notification wakes a blocked listener after publication."
   (daemon-runtime-notify runtime)
   runtime)
 
+(-> daemon-runtime--call-timer (function daemon-runtime) t)
+(defun daemon-runtime--call-timer (function runtime)
+  "Call a host timer FUNCTION, retaining its failure as a timer condition's cause."
+  (handler-case
+      (funcall function runtime)
+    (error (condition)
+      (daemon-fail :message "A host timer callback failed."
+                   :operation ':timer :cause condition))))
+
 (-> daemon-runtime--wait-for-client (daemon-runtime) boolean)
 (defun daemon-runtime--wait-for-client (runtime)
   "Wait for listener readiness or service one due deadline, without polling."
@@ -219,21 +241,24 @@ start or update live; notification wakes a blocked listener after publication."
       (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
         (values (daemon-runtime--next-deadline-function runtime)
                 (daemon-runtime--wake-function runtime)))
-    (let ((deadline (and next-function (funcall next-function runtime))))
+    (let ((deadline (and next-function (daemon-runtime--call-timer next-function runtime))))
       (unless (typep deadline '(or null (integer 0 *)))
         (daemon-fail :message   "A timer deadline must be a universal-time integer or NIL."
                      :operation ':timer))
       (if (and deadline (<= deadline (get-universal-time)))
           (progn
-            (funcall wake-function runtime)
-            (let ((next (funcall next-function runtime)))
+            (daemon-runtime--call-timer wake-function runtime)
+            (let ((next (daemon-runtime--call-timer next-function runtime)))
               (unless (or (null next) (and (integerp next) (> next (get-universal-time))))
                 (daemon-fail :message   "A timer callback did not advance its due deadline."
                              :operation ':timer)))
             nil)
-          (sb-sys:wait-until-fd-usable
-           (sb-bsd-sockets:socket-file-descriptor (daemon-runtime-listener runtime))
-           ':input (and deadline (max 0 (- deadline (get-universal-time)))) nil)))))
+          (let ((descriptor
+                  (sb-bsd-sockets:socket-file-descriptor (daemon-runtime-listener runtime))))
+            (unless (typep descriptor '(integer 0 *))
+              (daemon-fail :message "The endpoint listener is closed." :operation ':listen))
+            (sb-sys:wait-until-fd-usable
+             descriptor ':input (and deadline (max 0 (- deadline (get-universal-time)))) nil))))))
 
 (-> daemon-runtime--serve (daemon-runtime) null)
 (defun daemon-runtime--serve (runtime)
@@ -271,26 +296,52 @@ start or update live; notification wakes a blocked listener after publication."
 
 (-> daemon-runtime-start (daemon-runtime) daemon-runtime)
 (defun daemon-runtime-start (runtime)
-  "Publish when configured and start RUNTIME, rolling back ownership on failure."
+  "Start RUNTIME, or replace its confirmed-dead accept thread and listener.
+A live thread, including one still running its error callback, is reused.
+Explicit shutdown forbids further starts. Restart preserves accepted clients,
+the capability and creation time; owners decide when a failed runtime may retry."
   (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
-    (when (daemon-runtime-server-thread runtime)
-      (return-from daemon-runtime-start runtime))
     (when (daemon-runtime-stopping-p runtime)
       (daemon-fail :message "Cannot start a stopped endpoint." :operation ':start))
-    (let ((completed-p nil))
-      (unwind-protect
-           (progn
-             (when (daemon-runtime-publish-p runtime)
-               (daemon-registry-publish (daemon-runtime-registry-pathname runtime)
-                                        (daemon-runtime-record runtime)))
-             (setf (daemon-runtime-server-thread runtime)
-                   (bordeaux-threads:make-thread
-                    (lambda () (daemon-runtime--serve runtime)) :name "Image daemon endpoint")
-                   completed-p t))
-        (unless completed-p
-          (when (daemon-runtime-publish-p runtime)
-            (daemon-registry-delete-matching (daemon-runtime-registry-pathname runtime)
-                                             (daemon-runtime-record runtime)))))))
+    (let* ((previous     (daemon-runtime-server-thread runtime))
+           (old-listener (daemon-runtime-listener runtime))
+           (old-port     (daemon-runtime-port runtime)))
+      (when (and previous (bordeaux-threads:thread-alive-p previous))
+        (return-from daemon-runtime-start runtime))
+      (when previous
+        (let ((failure (daemon--join-thread previous 0)))
+          (when failure
+            (daemon-fail :message "The failed endpoint thread could not be reaped."
+                         :operation ':start :cause failure))))
+      (multiple-value-bind (listener port)
+          (if previous
+              (daemon-runtime--open-listener)
+              (values old-listener old-port))
+        (let ((completed-p nil))
+          (unwind-protect
+               (progn
+                 (setf (daemon-runtime-listener runtime) listener
+                       (slot-value runtime 'port) port)
+                 (when (daemon-runtime-publish-p runtime)
+                   (daemon-registry-publish (daemon-runtime-registry-pathname runtime)
+                                            (daemon-runtime-record runtime)))
+                 (setf (daemon-runtime-server-thread runtime)
+                       (bordeaux-threads:make-thread
+                        (lambda () (daemon-runtime--serve runtime)) :name "Image daemon endpoint")
+                       completed-p t))
+            (unless completed-p
+              (when (daemon-runtime-publish-p runtime)
+                (daemon-registry-delete-matching (daemon-runtime-registry-pathname runtime)
+                                                 (daemon-runtime-record runtime)))
+              (setf (daemon-runtime-listener runtime) old-listener
+                    (slot-value runtime 'port) old-port
+                    (daemon-runtime-server-thread runtime) previous)
+              (when previous
+                ; mallet:suppress no-ignore-errors -- closing a failed replacement must not mask startup failure
+                (ignore-errors (sb-bsd-sockets:socket-close listener)))))
+          (when previous
+            ; mallet:suppress no-ignore-errors -- a failed accept generation no longer needs its old listener
+            (ignore-errors (sb-bsd-sockets:socket-close old-listener)))))))
   runtime)
 
 (-> daemon-runtime-stop (daemon-runtime) null)

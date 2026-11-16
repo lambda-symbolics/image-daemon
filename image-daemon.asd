@@ -46,6 +46,7 @@
                               (:file "tests")
                               (:file "thread-tests")
                               (:file "runtime-tests")
+                              (:file "runtime-restart-tests")
                               (:file "attachment-tests")
                               (:file "handoff-tests")
                               (:file "eval-tests"))))

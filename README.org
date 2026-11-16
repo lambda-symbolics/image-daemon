@@ -56,6 +56,15 @@ You may subclass =DAEMON-RUNTIME= and specialize
 =DAEMON-RUNTIME-REQUEST-VALID-P= and =DAEMON-RUNTIME-ERROR-RESPONSE= for an
 application protocol.
 
+An accept-loop failure calls =:ERROR-FUNCTION= once with its condition and ends that
+thread. Timer callback errors have operation =:TIMER= and retain the host condition
+as their cause. The host decides whether to correct the callback or end its owner.
+After the failed thread has completely exited, call =DAEMON-RUNTIME-START= to open
+and publish a replacement listener with the same capability and creation time.
+Accepted clients continue on their existing transports. Concurrent starts share a
+live thread; a thread still running its error handler also counts as live.
+=DAEMON-RUNTIME-STOP= commits shutdown and forbids subsequent starts.
+
 Use =DAEMON-REGISTRY-DISCOVER= to inspect complete discovery records. Registry
 writers serialize with a directory file lock; publication retains live or
 uncertain ownership unless the capability matches. Reconciliation deletes only

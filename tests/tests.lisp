@@ -179,6 +179,7 @@
   (test-attachment-failure-drain)
   (test-daemon-runtime-stop-retry)
   (test-relay-retirement-retry)
+  (test-client-termination)
   (test-localgroup-blocking-read-lifecycle)
   (test-runtime-attachment-cleanup)
   (test-runtime-lifecycle)

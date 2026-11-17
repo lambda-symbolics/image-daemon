@@ -82,8 +82,9 @@ releasing a foreground terminal requires process handoff.
 
 When holding a runtime's transport lock during admission, pass
 =:defer-revocation-p t= to =RELAY-ATTACH=. Its third value is the replaced
-controller, if any. After releasing the lock, revoke and close that attachment,
-for example with =(attachment-finish previous '(:revoked))=.
+controller, if any. After releasing the lock, call
+=(relay-retire-attachment relay previous :packet '(:revoked))= to retain failed
+cleanup for a later =TRANSPORT-STOP= retry.
 
 =ATTACHMENT-CREATE= owns an asynchronous output writer. Pending output and replay
 have independent character limits. On overflow, shut down socket I/O before
@@ -118,6 +119,22 @@ call =RELAY-FINISH= with that status and an optional message. Every client
 receives it after the output already queued for it, and =DAEMON-ATTACH-CLIENT-RUN=
 returns it as =(:STATUS STATUS :MESSAGE MESSAGE)=, so a relaying front process can
 exit exactly as a foreground application would have. Any other end returns NIL.
+
+The second return value describes termination with =:KIND=, =:MESSAGE= and
+optional class-only diagnostics. Intentional kinds are =:DETACHED=, =:REVOKED=,
+=:APPLICATION-EXIT= and =:CONTROL-PACKET=. Failure kinds distinguish unexpected
+EOF, decoding, callback, transport, remote, queue-overflow and cleanup failures.
+Pass =:TERMINATION-FUNCTION= to observe this result. An exit observer failure or
+cleanup failure does not replace an already received application exit.
+
+Use =ATTACHMENT-HANDSHAKE-COMMITTED-P= to distinguish refusal before admission
+from failure after the success packet was queued. =ATTACHMENT-FAILURE= retains
+the first failure metadata after cleanup. =DAEMON-RUNTIME-LIVE-P= requires a live
+accept thread and no recorded runtime failure; inspect =DAEMON-RUNTIME-FAILURE=
+for its first condition. On failed runtime or relay teardown, handle
+=DAEMON-CLEANUP-ERROR= and retry stop after correcting its cause. Inspect
+=DAEMON-CLEANUP-ERROR-FAILURES= for every failed stage; failed resources stay
+owned until cleanup succeeds.
 
 * Process handoff
 

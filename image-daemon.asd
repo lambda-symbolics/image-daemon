@@ -49,6 +49,7 @@
                               (:file "runtime-restart-tests")
                               (:file "attachment-tests")
                               (:file "attachment-failure-tests")
+                              (:file "client-termination-tests")
                               (:file "handoff-tests")
                               (:file "eval-tests"))))
   :perform     (asdf:test-op (operation component)

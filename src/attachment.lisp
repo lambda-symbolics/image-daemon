@@ -15,6 +15,11 @@
 (defvar *daemon-client-transport-lock* nil
   "Runtime cleanup lock captured by attachments created in a request callback.")
 
+(define-condition daemon-cleanup-error (daemon-error)
+  ((failures :initarg :failures :reader daemon-cleanup-error-failures
+             :documentation "Ordered stage, retained resource and original condition triples."))
+  (:documentation "Independent cleanup stages failed while resource ownership was retained."))
+
 (defclass attachment nil
           ((socket :initarg :socket :reader attachment-socket :type sb-bsd-sockets:socket
             :documentation "The accepted loopback socket owned by this attachment.")
@@ -23,29 +28,33 @@
            (mode :initarg :mode :reader attachment-mode :type
             (member :read-only :control :take-over) :documentation
             "The observation or terminal-control authority of this attachment.")
-           (transport-lock :initarg :transport-lock
-            :initform               (or *daemon-client-transport-lock*
-                                                      (bordeaux-threads:make-lock "Image daemon transport"))
+           (transport-lock :initarg :transport-lock :initform
+            (or *daemon-client-transport-lock*
+                (bordeaux-threads:make-lock "Image daemon transport"))
             :reader attachment-transport-lock :documentation
             "Serializes native shutdown and close with runtime cleanup.")
-           (lock :initform (bordeaux-threads:make-lock "Image daemonp attachment")
-            :reader attachment-lock :type t :documentation
-            "The lock protecting output and closure state.")
+           (lock :initform (bordeaux-threads:make-lock "Image daemonp attachment") :reader
+            attachment-lock :type t :documentation "The lock protecting output and closure state.")
            (condition-variable :initform
-            (bordeaux-threads:make-condition-variable :name "Image daemonp attachment")
-            :reader attachment-condition-variable :type t :documentation
+            (bordeaux-threads:make-condition-variable :name "Image daemonp attachment") :reader
+            attachment-condition-variable :type t :documentation
             "The condition waking the output writer.")
            (queue :initform (structlisp:make-deque :weight-function #'length) :reader
             attachment-queue :type structlisp:deque :documentation
             "FIFO serialized packets awaiting the writer with maintained size.")
-           (closed-p :initform nil :accessor attachment-closed-p :type boolean
-            :documentation "Whether the stream no longer accepts packets.")
-           (socket-shutdown-p :initform nil :accessor attachment-socket-shutdown-p
-            :type boolean :documentation "Whether transport shutdown has been claimed.")
-           (stream-closed-p :initform nil :accessor attachment-stream-closed-p
-            :type boolean :documentation "Whether stream closure has been claimed.")
-           (writer-thread :initform nil :accessor attachment-writer-thread :type t
-            :documentation "The bounded asynchronous output writer."))
+           (closed-p :initform nil :accessor attachment-closed-p :type boolean :documentation
+            "Whether the stream no longer accepts packets.")
+           (socket-shutdown-p :initform nil :accessor attachment-socket-shutdown-p :type boolean
+            :documentation "Whether transport shutdown has been claimed.")
+           (stream-closed-p :initform nil :accessor attachment-stream-closed-p :type boolean
+            :documentation "Whether stream closure has been claimed.")
+           (writer-thread :initform nil :accessor attachment-writer-thread :type t :documentation
+            "The bounded asynchronous output writer.")
+           (handshake-committed-p :initform nil :accessor attachment-handshake-committed-p :type
+            boolean :documentation
+            "Whether the success handshake was admitted to the serialized writer queue.")
+           (failure :initform nil :accessor attachment-failure :documentation
+            "The first output failure or overflow reason, retained after cleanup."))
           (:documentation "One persistent read-only or controlling terminal attachment."))
 
 (defgeneric attachment-packet-string (attachment packet)
@@ -90,22 +99,27 @@ from a method, which can run in that writer's unwind cleanup."))
 (defun attachment--writer-loop (attachment)
   "Write queued packets and release transport on every exit, including termination."
   (unwind-protect
-       (block write-packets
-         (handler-case
-             (loop
-               for packet =
-                 (bordeaux-threads:with-lock-held ((attachment-lock attachment))
-                   (loop while (and (structlisp:deque-empty-p (attachment-queue attachment))
-                                    (not (attachment-closed-p attachment)))
-                         do (bordeaux-threads:condition-wait
-                             (attachment-condition-variable attachment)
-                             (attachment-lock attachment)))
-                   (when (structlisp:deque-empty-p (attachment-queue attachment))
-                     (return-from write-packets nil))
-                   (structlisp:deque-pop-front (attachment-queue attachment)))
-               do (write-string packet (attachment-stream attachment))
-                  (finish-output (attachment-stream attachment)))
-           (error () nil)))
+      (block write-packets
+        (handler-case
+         (loop for packet = (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+                              (loop while (and
+                                           (structlisp:deque-empty-p (attachment-queue attachment))
+                                           (not (attachment-closed-p attachment)))
+                                    do (bordeaux-threads:condition-wait
+                                        (attachment-condition-variable attachment)
+                                        (attachment-lock attachment)))
+                              (when (structlisp:deque-empty-p (attachment-queue attachment))
+                                (return-from write-packets nil))
+                              (structlisp:deque-pop-front (attachment-queue attachment)))
+               do (write-string packet (attachment-stream attachment)) (finish-output
+                                                                        (attachment-stream
+                                                                         attachment)))
+         (error (condition)
+                (bordeaux-threads:with-lock-held ((attachment-lock attachment))
+                  (unless (attachment-failure attachment)
+                    (setf (attachment-failure attachment)
+                          (list :reason "transport-failure" :stage "writer" :condition
+                                condition)))))))
     (bordeaux-threads:with-lock-held ((attachment-lock attachment))
       (setf (attachment-closed-p attachment) t)
       (structlisp:deque-clear (attachment-queue attachment))
@@ -142,10 +156,10 @@ admission and releases transport outside that lock. Return ATTACHMENT."
 
 (-> attachment-try-send (attachment t) (member :accepted :closed :overflow))
 (defun attachment-try-send (attachment packet)
-  "Encode and admit PACKET without releasing transport or joining any thread.
+  "Encode and admit PACKET, retaining its success commit or overflow reason.
 
-Return :ACCEPTED, :CLOSED or :OVERFLOW. Overflow closes admission, discards pending
-output and wakes the writer; the caller owns cleanup of a deferred attachment."
+Return :ACCEPTED, :CLOSED or :OVERFLOW without releasing transport or joining
+threads. The first overflow reason survives abortive queue cleanup."
   (let ((text (attachment-packet-string attachment packet)))
     (bordeaux-threads:with-lock-held ((attachment-lock attachment))
       (cond
@@ -153,12 +167,17 @@ output and wakes the writer; the caller owns cleanup of a deferred attachment."
          ':closed)
         ((> (+ (structlisp:deque-total-weight (attachment-queue attachment)) (length text))
             *attachment-queue-character-limit*)
+         (unless (attachment-failure attachment)
+           (setf (attachment-failure attachment)
+                 '(:reason "queue-overflow" :stage "output")))
          (setf (attachment-closed-p attachment) t)
          (structlisp:deque-clear (attachment-queue attachment))
          (bordeaux-threads:condition-notify (attachment-condition-variable attachment))
          ':overflow)
         (t
          (structlisp:deque-push-back (attachment-queue attachment) text)
+         (when (and (consp packet) (eq (first packet) ':attached))
+           (setf (attachment-handshake-committed-p attachment) t))
          (bordeaux-threads:condition-notify (attachment-condition-variable attachment))
          ':accepted)))))
 
@@ -211,38 +230,35 @@ failures propagate; the retained writer can be reaped by retrying."
   nil)
 
 (defclass relay (transport)
-          ((lock :initform (bordeaux-threads:make-lock "Image daemonp terminal") :reader
-            relay-lock :type t :documentation
-            "The lock protecting terminal ownership, input, and history.")
-           (direct-terminal :initform nil :initarg :direct-terminal :accessor
-            relay-direct-terminal :type t :documentation
-            "The terminal inherited from the launching foreground process.")
+          ((lock :initform (bordeaux-threads:make-lock "Image daemonp terminal") :reader relay-lock
+            :type t :documentation "The lock protecting terminal ownership, input, and history.")
+           (direct-terminal :initform nil :initarg :direct-terminal :accessor relay-direct-terminal
+            :type t :documentation "The terminal inherited from the launching foreground process.")
            (controller :initform nil :accessor relay-controller :type (option attachment)
             :documentation "The attachment currently allowed to submit terminal input.")
            (observers :initform nil :accessor relay-observers :type list :documentation
             "Read-only attachments receiving rendered terminal output.")
-           (closing-attachments :initform nil :accessor relay-closing-attachments
-            :type list :documentation
-            "Detached attachments retained until their writers have been reaped.")
+           (closing-attachments :initform nil :accessor relay-closing-attachments :type list
+            :documentation "Detached attachments retained until their writers have been reaped.")
+           (closing-direct-transports :initform nil :accessor relay-closing-direct-transports
+            :type list :documentation "Released foreground transports awaiting successful stop.")
            (input-condition-variable :initform
-            (bordeaux-threads:make-condition-variable :name
-                                                      "Image daemonp terminal input")
-            :reader relay-input-condition-variable :type t :documentation
+            (bordeaux-threads:make-condition-variable :name "Image daemonp terminal input") :reader
+            relay-input-condition-variable :type t :documentation
             "The condition waking a blocking semantic input read.")
-           (input-events :initform (structlisp:make-deque) :reader relay-input-events
-            :type structlisp:deque :documentation
+           (input-events :initform (structlisp:make-deque) :reader relay-input-events :type
+            structlisp:deque :documentation
             "FIFO semantic events received from the controlling attachment.")
            (history :initform (structlisp:make-deque :weight-function #'length) :reader
             relay-history :type structlisp:deque :documentation
             "Bounded terminal output chunks with maintained character size.")
-           (history-position :initform 0 :accessor relay-history-position
-                             :type          (integer 0)
-                             :documentation "Total output characters retained, including evicted history.")
-           (wake-function :initform nil :accessor relay-wake-function :type
-            (option function) :documentation
-            "The callback waking the responsive input controller."))
-          (:documentation
-           "A terminal relay supporting foreground, detached, and observed use."))
+           (history-position :initform 0 :accessor relay-history-position :type (integer 0)
+            :documentation "Total output characters retained, including evicted history.")
+           (wake-function :initform nil :accessor relay-wake-function :type (option function)
+            :documentation "The callback waking the responsive input controller.")
+           (cleanup-cause :initform nil :accessor relay-cleanup-cause :documentation
+            "First retirement failure retained until closing attachments are released."))
+          (:documentation "A terminal relay supporting foreground, detached, and observed use."))
 
 (-> relay-set-wake-function (relay (or null function)) null)
 (defun relay-set-wake-function (transport function)
@@ -300,19 +316,66 @@ failures propagate; the retained writer can be reaped by retrying."
       (setf (transport-started-p transport) t)))
   transport)
 
+(-> relay--retire-attachments (relay list &key (:packet list) (:direct t)) null)
+(defun relay--retire-attachments (transport attachments &key packet direct)
+  "Retire attachments and foreground transports independently, retaining failed cleanup."
+  (let (directs failures cause)
+    (bordeaux-threads:with-lock-held ((relay-lock transport))
+      (when direct
+        (pushnew direct (relay-closing-direct-transports transport) :test #'eq))
+      (setf directs (copy-list (relay-closing-direct-transports transport)))
+      (dolist (attachment attachments)
+        (pushnew attachment (relay-closing-attachments transport) :test #'eq)))
+    (dolist (foreground directs)
+      (handler-case
+          (progn
+            (transport-stop foreground)
+            (bordeaux-threads:with-lock-held ((relay-lock transport))
+              (setf (relay-closing-direct-transports transport)
+                    (remove foreground (relay-closing-direct-transports transport) :test #'eq))))
+        (error (condition)
+          (push (list ':direct-transport foreground condition) failures))))
+    (dolist (attachment attachments)
+      (handler-case
+          (progn
+            (if packet
+                (attachment-finish attachment packet)
+                (attachment-close attachment))
+            (bordeaux-threads:with-lock-held ((relay-lock transport))
+              (setf (relay-closing-attachments transport)
+                    (remove attachment (relay-closing-attachments transport) :test #'eq))))
+        (error (condition)
+          (push (list ':attachment attachment condition) failures))))
+    (setf failures (nreverse failures))
+    (bordeaux-threads:with-lock-held ((relay-lock transport))
+      (when (and failures (null (relay-cleanup-cause transport)))
+        (setf (relay-cleanup-cause transport) (third (first failures))))
+      (unless (or (relay-closing-attachments transport)
+                  (relay-closing-direct-transports transport))
+        (setf (relay-cleanup-cause transport) nil))
+      (setf cause (relay-cleanup-cause transport)))
+    (when failures
+      (error 'daemon-cleanup-error :operation ':retire-attachments
+             :cause cause :failures failures
+             :message                         "Transport cleanup failed; the relay retains it for stop retry.")))
+  nil)
+
+(-> relay-retire-attachment (relay attachment &key (:packet list)) null)
+(defun relay-retire-attachment (transport attachment &key packet)
+  "Finish a removed attachment with PACKET, or abortively close it, retaining failures."
+  (relay--retire-attachments transport (list attachment) :packet packet))
+
 (defmethod transport-stop ((transport relay))
   "Stop relay transports, retaining failed attachment cleanup for a later retry."
-  (let ((direct nil) (attachments nil) (failure nil))
+  (let (direct attachments)
     (bordeaux-threads:with-lock-held ((relay-lock transport))
-      (setf direct (and (transport-started-p transport)
-                        (relay-direct-terminal transport))
-            attachments
-            (remove-duplicates
-             (append (relay-closing-attachments transport)
-                     (when (relay-controller transport)
-                       (list (relay-controller transport)))
-                     (relay-observers transport))
-             :test #'eq)
+      (setf direct (and (transport-started-p transport) (relay-direct-terminal transport))
+            attachments (remove-duplicates
+                         (append (relay-closing-attachments transport)
+                                 (when (relay-controller transport)
+                                   (list (relay-controller transport)))
+                                 (relay-observers transport))
+                         :test #'eq)
             (relay-closing-attachments transport) attachments
             (relay-controller transport) nil
             (relay-observers transport) nil
@@ -321,18 +384,7 @@ failures propagate; the retained writer can be reaped by retrying."
             (transport-started-p transport) nil)
       (structlisp:deque-clear (relay-input-events transport))
       (sb-thread:condition-broadcast (relay-input-condition-variable transport)))
-    ; mallet:suppress no-ignore-errors -- a failing terminal restore must not keep the relay from releasing it
-    (when direct (ignore-errors (transport-stop direct)))
-    (dolist (attachment attachments)
-      (handler-case
-          (progn
-            (attachment-close attachment)
-            (bordeaux-threads:with-lock-held ((relay-lock transport))
-              (setf (relay-closing-attachments transport)
-                    (remove attachment (relay-closing-attachments transport) :test #'eq))))
-        (error (condition)
-          (unless failure (setf failure condition)))))
-    (when failure (error failure)))
+    (relay--retire-attachments transport attachments :direct direct))
   transport)
 
 (defmethod transport-write ((transport relay) (text string))
@@ -408,8 +460,7 @@ failures propagate; the retained writer can be reaped by retrying."
             (relay-direct-terminal transport) nil)
       (unless (relay-controller transport)
         (setf (transport-interactive-p transport) nil)))
-    ; mallet:suppress no-ignore-errors -- a failing terminal restore must not keep the relay from releasing it
-    (when direct (ignore-errors (transport-stop direct)))
+    (when direct (relay--retire-attachments transport nil :direct direct))
     (not (null direct))))
 
 (-> relay-attach
@@ -430,14 +481,12 @@ outside any shared transport lock. Otherwise revoke and close it before returnin
       (when
           (and (eq mode ':control)
                (or (relay-direct-terminal transport) (relay-controller transport)))
-        (daemon-fail :message
-                     "The localgroup session already has a controlling terminal."
+        (daemon-fail :message   "The localgroup session already has a controlling terminal."
                      :operation ':attach))
       (let* ((history
               (apply #'concatenate 'string
                      (cons ""
-                           (coerce (structlisp:deque->vector (relay-history transport))
-                                   'list))))
+                           (coerce (structlisp:deque->vector (relay-history transport)) 'list))))
              (next-rows
               (if (and (not (eq mode ':read-only)) (plusp rows))
                   rows
@@ -448,10 +497,11 @@ outside any shared transport lock. Otherwise revoke and close it before returnin
                   (transport-columns transport))))
         (unless
             (attachment-send attachment
-             (list :attached :mode mode :session-id session-id :history history
-                   :history-start    (- (relay-history-position transport) (length history))
-                   :history-position (relay-history-position transport)
-                   :rows next-rows :columns next-columns))
+                             (list :attached :mode mode :session-id session-id :history history
+                                   :history-start
+                                   (- (relay-history-position transport) (length history))
+                                   :history-position (relay-history-position transport) :rows
+                                   next-rows :columns next-columns))
           (return-from relay-attach (values nil nil nil)))
         (ecase mode
           (:read-only
@@ -459,6 +509,9 @@ outside any shared transport lock. Otherwise revoke and close it before returnin
           (:control
            (setf (relay-controller transport) attachment))
           (:take-over
+           (when (relay-controller transport)
+             (pushnew (relay-controller transport) (relay-closing-attachments transport) :test
+                      #'eq))
            (setf direct (relay-direct-terminal transport)
                  old-controller (relay-controller transport)
                  (relay-direct-terminal transport) nil
@@ -468,17 +521,14 @@ outside any shared transport lock. Otherwise revoke and close it before returnin
         (when (not (eq mode ':read-only))
           (setf (transport-interactive-p transport) t
                 (transport-styled-p transport) (not (null styled-p)))
-          (transport-resize transport :rows next-rows :columns next-columns :styled-p
-           styled-p))))
-    ; mallet:suppress no-ignore-errors -- a failing terminal restore must not keep the relay from releasing it
-    (when direct (ignore-errors (transport-stop direct)))
-    (when (and old-controller (not (eq old-controller attachment))
-               (not defer-revocation-p))
-      (attachment-send old-controller '(:revoked))
-      (attachment-close old-controller))
+          (transport-resize transport :rows next-rows :columns next-columns :styled-p styled-p))))
+    (relay--retire-attachments
+     transport
+     (when (and old-controller (not (eq old-controller attachment)) (not defer-revocation-p))
+       (list old-controller))
+     :packet '(:revoked) :direct direct)
     (values t released-direct-p
-            (when (and defer-revocation-p (not (eq old-controller attachment)))
-              old-controller))))
+            (when (and defer-revocation-p (not (eq old-controller attachment))) old-controller))))
 
 (-> relay-detach (relay attachment) boolean)
 (defun relay-detach (transport attachment)
@@ -497,21 +547,20 @@ outside any shared transport lock. Otherwise revoke and close it before returnin
 
 (-> relay-release-control (relay) boolean)
 (defun relay-release-control (transport)
-  "Release TERMINAL's direct or remote controller and report direct ownership."
-  (let ((direct nil) (controller nil))
+  "Release the direct or remote controller, retaining failed remote cleanup."
+  (let (direct controller)
     (bordeaux-threads:with-lock-held ((relay-lock transport))
       (setf direct (relay-direct-terminal transport)
-            controller (relay-controller transport)
-            (relay-direct-terminal transport) nil
+            controller (relay-controller transport))
+      (when controller
+        (pushnew controller (relay-closing-attachments transport) :test #'eq))
+      (setf (relay-direct-terminal transport) nil
             (relay-controller transport) nil
             (transport-interactive-p transport) nil)
       (structlisp:deque-clear (relay-input-events transport))
       (sb-thread:condition-broadcast (relay-input-condition-variable transport)))
-    ; mallet:suppress no-ignore-errors -- a failing terminal restore must not keep the relay from releasing it
-    (when direct (ignore-errors (transport-stop direct)))
-    (when controller
-      (attachment-send controller '(:detached))
-      (attachment-close controller))
+    (relay--retire-attachments transport (when controller (list controller))
+                               :packet '(:detached) :direct direct)
     (not (null direct))))
 
 (-> relay-finish (relay &key (:status t) (:message t) (:details t)) relay)
@@ -531,20 +580,20 @@ application."
           "Exit details ~S are not a plist of keywords to strings or integers." details)
   (let ((attachments nil))
     (bordeaux-threads:with-lock-held ((relay-lock transport))
-      (setf attachments (remove-duplicates
-                         (append (when (relay-controller transport)
-                                   (list (relay-controller transport)))
-                                 (relay-observers transport))
-                         :test #'eq)
+      (setf attachments
+              (remove-duplicates
+               (append (relay-closing-attachments transport)
+                       (when (relay-controller transport) (list (relay-controller transport)))
+                       (relay-observers transport))
+               :test #'eq)
+            (relay-closing-attachments transport) attachments
             (relay-controller transport) nil
             (relay-observers transport) nil)
-      (unless (relay-direct-terminal transport)
-        (setf (transport-interactive-p transport) nil))
+      (unless (relay-direct-terminal transport) (setf (transport-interactive-p transport) nil))
       (structlisp:deque-clear (relay-input-events transport))
       (sb-thread:condition-broadcast (relay-input-condition-variable transport)))
-    (dolist (attachment attachments)
-      (attachment-finish attachment (list* :exit :status status :message message
-                                           (when details (list :details details))))))
+    (relay--retire-attachments transport attachments :packet
+     (list* :exit :status status :message message (when details (list :details details)))))
   transport)
 
 (-> relay-observer-count (relay) (integer 0))

@@ -3,15 +3,15 @@
 (-> call-with-restart-runtime (function &key (:request-function t) (:error-function t)) *)
 (defun call-with-restart-runtime (function &key request-function error-function)
   "Call FUNCTION with a private published runtime, then retire its resources."
-  (let* ((root (merge-pathnames (format nil "daemon-restart-~A/" (daemon-random-nonce))
-                                (uiop:temporary-directory)))
+  (let* ((root    (merge-pathnames (format nil "daemon-restart-~A/" (daemon-random-nonce))
+                                   (uiop:temporary-directory)))
          (runtime (daemon-runtime-create
                    :directory root :identifier "restart" :token "restart-capability"
                    :request-function (or request-function
                                          (lambda (runtime request &key socket stream)
                                            (declare (ignore runtime request socket))
                                            (daemon-write-packet stream '(:ok))))
-                   :error-function error-function)))
+                   :error-function   error-function)))
     (unwind-protect
          (funcall function runtime)
       (daemon-runtime-stop runtime)
@@ -29,7 +29,7 @@
 (defun test-runtime-timer-restart ()
   "Classify host callback failures and explicitly restart after correcting them."
   (dolist (failure '(:next :wake :invalid))
-    (let ((seen nil)
+    (let ((seen     nil)
           (original (make-condition 'simple-error :format-control "Host timer failed")))
       (call-with-restart-runtime
        (lambda (runtime)
@@ -39,9 +39,12 @@
           (lambda (runtime)
             (declare (ignore runtime))
             (ecase failure
-              (:next (error original))
-              (:wake (get-universal-time))
-              (:invalid ':invalid)))
+              (:next
+               (error original))
+              (:wake
+               (get-universal-time))
+              (:invalid
+               ':invalid)))
           :wake-function (lambda (runtime) (declare (ignore runtime)) (error original)))
          (daemon-runtime-start runtime)
          (let* ((old-thread (restart-test--join runtime))
@@ -73,7 +76,7 @@
        (image-daemon:daemon-runtime-set-timer
         runtime
         :next-deadline-function (lambda (runtime) (declare (ignore runtime)) ':invalid)
-        :wake-function (lambda (runtime) (declare (ignore runtime))))
+        :wake-function          (lambda (runtime) (declare (ignore runtime))))
        (loop repeat 2
              do (daemon-runtime-start runtime)
                 (check (sb-thread:wait-on-semaphore reports :timeout 2) "the explicit start reports failure")
@@ -100,7 +103,7 @@
           :wake-function (lambda (owner) (declare (ignore owner)))))
        (daemon-runtime-start runtime)
        (let ((previous (restart-test--join runtime))
-             (gate (sb-thread:make-semaphore :count 0))
+             (gate     (sb-thread:make-semaphore :count 0))
              (starters nil))
          (check (and (= (length seen) 1) (typep (first seen) 'daemon-error)
                      (eq (daemon-error-operation (first seen)) ':listen))
@@ -130,7 +133,7 @@
   "Keep an accepted client's thread and transport across listener replacement."
   (let ((entered (sb-thread:make-semaphore :count 0))
         (release (sb-thread:make-semaphore :count 0))
-        (client nil))
+        (client  nil))
     (unwind-protect
          (call-with-restart-runtime
           (lambda (runtime)
@@ -171,7 +174,7 @@
             (image-daemon:daemon-runtime-set-timer
              runtime
              :next-deadline-function (lambda (runtime) (declare (ignore runtime)) ':invalid)
-             :wake-function (lambda (runtime) (declare (ignore runtime))))
+             :wake-function          (lambda (runtime) (declare (ignore runtime))))
             (daemon-runtime-start runtime)
             (check (sb-thread:wait-on-semaphore entered :timeout 2) "the error handler is running")
             (let ((previous (daemon-runtime-server-thread runtime)))
@@ -203,12 +206,12 @@
        (image-daemon:daemon-runtime-set-timer
         runtime
         :next-deadline-function (lambda (runtime) (declare (ignore runtime)) ':invalid)
-        :wake-function (lambda (runtime) (declare (ignore runtime))))
+        :wake-function          (lambda (runtime) (declare (ignore runtime))))
        (daemon-runtime-start runtime)
-       (let ((previous (restart-test--join runtime))
-             (old-listener (daemon-runtime-listener runtime))
-             (old-port (daemon-runtime-port runtime))
-             (replacement nil)
+       (let ((previous           (restart-test--join runtime))
+             (old-listener       (daemon-runtime-listener runtime))
+             (old-port           (daemon-runtime-port runtime))
+             (replacement        nil)
              (replacement-record nil))
          (image-daemon:daemon-runtime-set-timer runtime)
          (call-with-replacement

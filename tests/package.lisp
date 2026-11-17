@@ -17,8 +17,13 @@
                 #:attachment-finish
                 #:attachment-lock
                 #:attachment-queue
+                #:attachment-release-transport
+                #:attachment-packet-string
+                #:attachment-try-send
                 #:attachment-send
                 #:attachment-writer-thread
+                #:daemon-attach-receive
+                #:daemon-packet-string
                 #:daemon-attach-client-run
                 #:daemon-call
                 #:daemon-connect

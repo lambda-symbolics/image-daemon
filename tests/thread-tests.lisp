@@ -55,6 +55,8 @@
       ;; Release before joining even when testing the former unbounded stopper.
       (sb-thread:signal-semaphore release-cleanup)
       (when stopper (sb-thread:join-thread stopper :timeout 2)))
+    (when (typep failure 'image-daemon:daemon-cleanup-error)
+      (setf failure (daemon-error-cause failure)))
     (check (and returned-p (typep failure 'daemon-error)
                 (eq (daemon-error-operation failure) ':stop-thread))
            "blocked cleanup reports a bounded daemon thread-stop failure")

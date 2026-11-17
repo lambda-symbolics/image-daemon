@@ -25,6 +25,8 @@ evaluation endpoints for Lisp image daemons.")
            #:relay-read-attachment
            #:daemon-terminal-event-p
            #:daemon-runtime-stop
+           #:daemon-runtime-live-p
+           #:daemon-runtime-failure
            #:daemon-runtime-start
            #:daemon-runtime-create
            #:daemon-runtime-publish-p
@@ -54,6 +56,8 @@ evaluation endpoints for Lisp image daemons.")
            #:*daemon-packet-character-limit*
            #:*daemon-protocol-version*
            #:daemon-error
+           #:daemon-cleanup-error
+           #:daemon-cleanup-error-failures
            #:daemon-error-cause
            #:daemon-error-message
            #:daemon-error-operation
@@ -94,6 +98,8 @@ evaluation endpoints for Lisp image daemons.")
            #:attachment-condition-variable
            #:attachment-queue
            #:attachment-closed-p
+           #:attachment-handshake-committed-p
+           #:attachment-failure
            #:attachment-writer-thread
            #:attachment
            #:attachment-create
@@ -138,6 +144,7 @@ evaluation endpoints for Lisp image daemons.")
            #:relay-detach
            #:relay-release-control
            #:relay-finish
+           #:relay-retire-attachment
            #:daemon-exit-details-p
            #:relay-observer-count
            #:relay-attached-p

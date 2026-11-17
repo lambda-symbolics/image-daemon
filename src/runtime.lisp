@@ -1,41 +1,48 @@
 (in-package #:image-daemon)
 
-;;;; -- Persistent Loopback Services --
-
-(defclass daemon-runtime ()
-  ((identifier :initarg :identifier :accessor daemon-runtime-identifier
-               :documentation "The public discovery identifier, or NIL for ephemeral runtimes.")
-   (publish-p :initarg :publish-p :reader daemon-runtime-publish-p
-              :documentation "Whether this runtime owns a registry record.")
-   (token :initarg :token :reader daemon-runtime-token
-          :documentation "The private request capability, never a display value.")
-   (listener :initarg :listener :accessor daemon-runtime-listener
-             :documentation "The listening socket, or NIL after shutdown.")
-   (port :initarg :port :reader daemon-runtime-port
-         :documentation "The bound loopback TCP port.")
-   (registry-pathname :initarg :registry-pathname :accessor daemon-runtime-registry-pathname
-                      :documentation "The owned private discovery record, or NIL when unpublished.")
-   (created-at :initarg :created-at :reader daemon-runtime-created-at
-               :documentation "Universal time at initial creation.")
-   (lock :initform (bordeaux-threads:make-lock "Image daemon runtime")
-         :reader daemon-runtime-lock :documentation "Protects lifecycle and clients.")
-   (stopping-p :initform nil :accessor daemon-runtime-stopping-p
-               :documentation "Whether shutdown has begun.")
-   (server-thread :initform nil :accessor daemon-runtime-server-thread
-                  :documentation "The accept-loop thread.")
-   (client-threads :initform nil :accessor daemon-runtime-client-threads
-                   :documentation "Active request threads.")
-   (client-sockets :initform nil :accessor daemon-runtime-client-sockets
-                   :documentation "Accepted sockets awaiting cleanup.")
-   (next-deadline-function :initform nil :accessor daemon-runtime--next-deadline-function
-                           :documentation "Optional callback returning the next universal-time deadline.")
-   (wake-function :initform nil :accessor daemon-runtime--wake-function
-                  :documentation "Optional deadline callback, called on the accept-loop thread.")
-   (request-function :initarg :request-function :reader daemon-runtime-request-function
-                     :documentation "Callback (runtime request &key socket stream) for authenticated requests.")
-   (error-function :initarg :error-function :initform nil :reader daemon-runtime-error-function
-                   :documentation "Optional callback for accept-loop failures."))
-  (:documentation "One local service with explicitly owned transport resources."))
+(defclass daemon-runtime nil
+          ((identifier :initarg :identifier :accessor daemon-runtime-identifier :documentation
+            "The public discovery identifier, or NIL for ephemeral runtimes.")
+           (publish-p :initarg :publish-p :reader daemon-runtime-publish-p :documentation
+            "Whether this runtime owns a registry record.")
+           (token :initarg :token :reader daemon-runtime-token :documentation
+            "The private request capability, never a display value.")
+           (listener :initarg :listener :accessor daemon-runtime-listener :documentation
+            "The listening socket, or NIL after shutdown.")
+           (port :initarg :port :reader daemon-runtime-port :documentation
+            "The bound loopback TCP port.")
+           (registry-pathname :initarg :registry-pathname :accessor
+            daemon-runtime-registry-pathname :documentation
+            "The owned private discovery record, or NIL when unpublished.")
+           (created-at :initarg :created-at :reader daemon-runtime-created-at :documentation
+            "Universal time at initial creation.")
+           (lock :initform (bordeaux-threads:make-lock "Image daemon runtime") :reader
+            daemon-runtime-lock :documentation "Protects lifecycle and clients.")
+           (stopping-p :initform nil :accessor daemon-runtime-stopping-p :documentation
+            "Whether shutdown has begun.")
+           (server-thread :initform nil :accessor daemon-runtime-server-thread :documentation
+            "The accept-loop thread.")
+           (client-threads :initform nil :accessor daemon-runtime-client-threads :documentation
+            "Active request threads.")
+           (client-sockets :initform nil :accessor daemon-runtime-client-sockets :documentation
+            "Accepted sockets awaiting cleanup.")
+           (next-deadline-function :initform nil :accessor daemon-runtime--next-deadline-function
+            :documentation "Optional callback returning the next universal-time deadline.")
+           (wake-function :initform nil :accessor daemon-runtime--wake-function :documentation
+            "Optional deadline callback, called on the accept-loop thread.")
+           (request-function :initarg :request-function :reader daemon-runtime-request-function
+            :documentation
+            "Callback (runtime request &key socket stream) for authenticated requests.")
+           (error-function :initarg :error-function :initform nil :reader
+            daemon-runtime-error-function :documentation
+            "Optional callback for accept-loop failures.")
+           (failure :initform nil :accessor daemon-runtime-failure :documentation
+            "The original accept-loop failure, retained before host diagnostics.")
+           (cleanup-cause :initform nil :accessor daemon-runtime-cleanup-cause :documentation
+            "The first cleanup failure until the owned stop completes.")
+           (cleanup-failures :initform nil :accessor daemon-runtime-cleanup-failures :documentation
+            "The last ordered set of failed cleanup resources."))
+          (:documentation "One local service with explicitly owned transport resources."))
 
 (export '(daemon-runtime-read-request daemon-runtime-client-limit
           daemon-runtime-set-timer daemon-runtime-notify))
@@ -54,6 +61,16 @@
   "Return an :ERROR packet holding CONDITION's report."
   (declare (ignore runtime))
   (list :error :message (princ-to-string condition)))
+
+(-> daemon-runtime-live-p (daemon-runtime) boolean)
+(defun daemon-runtime-live-p (runtime)
+  "Return whether RUNTIME owns a live listener generation without a recorded failure."
+  (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+    (let ((thread (daemon-runtime-server-thread runtime)))
+      (not (null (and (not (daemon-runtime-stopping-p runtime))
+                      (null (daemon-runtime-failure runtime))
+                      (daemon-runtime-listener runtime)
+                      thread (bordeaux-threads:thread-alive-p thread)))))))
 
 (-> daemon-runtime-record (daemon-runtime) list)
 (defun daemon-runtime-record (runtime)
@@ -264,34 +281,41 @@ start or update live; notification wakes a blocked listener after publication."
 (defun daemon-runtime--serve (runtime)
   "Accept requests until RUNTIME stops; never register a client after shutdown."
   (loop
-    (when (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
-            (daemon-runtime-stopping-p runtime))
-      (return))
-    (handler-case
-        (when (daemon-runtime--wait-for-client runtime)
-          (let ((socket (sb-bsd-sockets:socket-accept (daemon-runtime-listener runtime))))
-            (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
-              (if (or (daemon-runtime-stopping-p runtime)
-                      (let ((limit (daemon-runtime-client-limit runtime)))
-                        (and limit (>= (length (daemon-runtime-client-sockets runtime)) limit))))
-                  ; mallet:suppress no-ignore-errors -- a refused connection is dropped whether or not its close succeeds
-                  (ignore-errors (sb-bsd-sockets:socket-close socket))
-                  (handler-case
-                      (let ((thread
-                              (bordeaux-threads:make-thread
-                               (lambda () (daemon-runtime--handle-client runtime socket))
-                               :name "Image daemon request")))
-                        (push socket (daemon-runtime-client-sockets runtime))
-                        (push thread (daemon-runtime-client-threads runtime)))
-                    (error (condition)
-                      ; mallet:suppress no-ignore-errors -- closing the socket must not mask the thread creation failure
-                      (ignore-errors (sb-bsd-sockets:socket-close socket))
-                      (error condition)))))))
-      (error (condition)
-        (when (and (not (daemon-runtime-stopping-p runtime))
-                   (daemon-runtime-error-function runtime))
-          (funcall (daemon-runtime-error-function runtime) condition))
-        (return))))
+   (when
+       (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+         (daemon-runtime-stopping-p runtime))
+     (return))
+   (handler-case
+    (when (daemon-runtime--wait-for-client runtime)
+      (let ((socket (sb-bsd-sockets:socket-accept (daemon-runtime-listener runtime))))
+        (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+          (if (or (daemon-runtime-stopping-p runtime)
+                  (let ((limit (daemon-runtime-client-limit runtime)))
+                    (and limit (>= (length (daemon-runtime-client-sockets runtime)) limit))))
+              ; mallet:suppress no-ignore-errors -- closing a refused client is best effort
+              (ignore-errors (sb-bsd-sockets:socket-close socket))
+              (handler-case
+               (let ((thread
+                      (bordeaux-threads:make-thread
+                       (lambda () (daemon-runtime--handle-client runtime socket)) :name
+                       "Image daemon request")))
+                 (push socket (daemon-runtime-client-sockets runtime))
+                 (push thread (daemon-runtime-client-threads runtime)))
+               (error (condition)
+                 ; mallet:suppress no-ignore-errors -- preserve the handler startup failure
+                 (ignore-errors (sb-bsd-sockets:socket-close socket))
+                 (error condition)))))))
+    (error (condition)
+           (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+             (unless (daemon-runtime-stopping-p runtime)
+               (setf (daemon-runtime-failure runtime) condition)))
+           (handler-case
+            (when
+                (and (not (daemon-runtime-stopping-p runtime))
+                     (daemon-runtime-error-function runtime))
+              (funcall (daemon-runtime-error-function runtime) condition))
+            (error nil nil))
+           (return))))
   nil)
 
 (-> daemon-runtime-start (daemon-runtime) daemon-runtime)
@@ -311,24 +335,25 @@ the capability and creation time; owners decide when a failed runtime may retry.
       (when previous
         (let ((failure (daemon--join-thread previous 0)))
           (when failure
-            (daemon-fail :message "The failed endpoint thread could not be reaped."
-                         :operation ':start :cause failure))))
+            (daemon-fail :message "The failed endpoint thread could not be reaped." :operation
+                         ':start :cause failure))))
       (multiple-value-bind (listener port)
           (if previous
               (daemon-runtime--open-listener)
               (values old-listener old-port))
         (let ((completed-p nil))
           (unwind-protect
-               (progn
-                 (setf (daemon-runtime-listener runtime) listener
-                       (slot-value runtime 'port) port)
-                 (when (daemon-runtime-publish-p runtime)
-                   (daemon-registry-publish (daemon-runtime-registry-pathname runtime)
-                                            (daemon-runtime-record runtime)))
-                 (setf (daemon-runtime-server-thread runtime)
-                       (bordeaux-threads:make-thread
-                        (lambda () (daemon-runtime--serve runtime)) :name "Image daemon endpoint")
-                       completed-p t))
+              (progn
+               (setf (daemon-runtime-listener runtime) listener
+                     (slot-value runtime 'port) port)
+               (when (daemon-runtime-publish-p runtime)
+                 (daemon-registry-publish (daemon-runtime-registry-pathname runtime)
+                                          (daemon-runtime-record runtime)))
+               (setf (daemon-runtime-server-thread runtime)
+                     (bordeaux-threads:make-thread (lambda () (daemon-runtime--serve runtime))
+                                                   :name "Image daemon endpoint")
+                     completed-p t
+                     (daemon-runtime-failure runtime) nil))
             (unless completed-p
               (when (daemon-runtime-publish-p runtime)
                 (daemon-registry-delete-matching (daemon-runtime-registry-pathname runtime)
@@ -336,42 +361,82 @@ the capability and creation time; owners decide when a failed runtime may retry.
               (setf (daemon-runtime-listener runtime) old-listener
                     (slot-value runtime 'port) old-port
                     (daemon-runtime-server-thread runtime) previous)
-              (when previous
-                ; mallet:suppress no-ignore-errors -- closing a failed replacement must not mask startup failure
-                (ignore-errors (sb-bsd-sockets:socket-close listener)))))
-          (when previous
-            ; mallet:suppress no-ignore-errors -- a failed accept generation no longer needs its old listener
-            (ignore-errors (sb-bsd-sockets:socket-close old-listener)))))))
+              ; mallet:suppress no-ignore-errors -- preserve failed replacement startup
+              (when previous (ignore-errors (sb-bsd-sockets:socket-close listener)))))
+          ; mallet:suppress no-ignore-errors -- the dead generation has already been replaced
+          (when previous (ignore-errors (sb-bsd-sockets:socket-close old-listener)))))))
   runtime)
 
 (-> daemon-runtime-stop (daemon-runtime) null)
 (defun daemon-runtime-stop (runtime)
-  "Stop RUNTIME, unblock socket readers and writers, and unpublish its record."
-  (let (listener server clients sockets)
+  "Attempt all stop stages, releasing only resources whose cleanup succeeds.
+
+Failed resources and the first cause remain owned for a later stop retry."
+  (let (listener server clients sockets failures registry)
     (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
       (setf (daemon-runtime-stopping-p runtime) t
             listener (daemon-runtime-listener runtime)
             server (daemon-runtime-server-thread runtime)
             clients (copy-list (daemon-runtime-client-threads runtime))
-            sockets (copy-list (daemon-runtime-client-sockets runtime))))
-    (when listener
-      ; mallet:suppress no-ignore-errors -- a listener that cannot be reached needs no wake
-      (ignore-errors
-       (multiple-value-bind (socket stream) (daemon-connect (daemon-runtime-port runtime))
-         (declare (ignore stream))
-         (sb-bsd-sockets:socket-close socket :abort t))))
-    (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+            sockets (copy-list (daemon-runtime-client-sockets runtime))
+            registry (daemon-runtime-registry-pathname runtime)))
+    (labels ((attempt (stage resource function &key release)
+               (handler-case (progn (funcall function) (when release (funcall release)))
+                             (error (condition) (push (list stage resource condition) failures))))
+
+             (reap (thread)
+               (daemon-stop-thread thread)
+               (when (bordeaux-threads:thread-alive-p thread)
+                 (daemon-fail :operation ':stop-thread :message
+                              "The endpoint still owns a live thread after stop."))))
+      (when listener
+        (handler-case
+         (multiple-value-bind (socket stream)
+             (daemon-connect (daemon-runtime-port runtime))
+           (declare (ignore stream))
+           (sb-bsd-sockets:socket-close socket :abort t))
+         (error nil nil)))
       (dolist (socket sockets)
-        ; mallet:suppress no-ignore-errors -- shutdown closes every client socket even when one close fails
-        (ignore-errors (sb-bsd-sockets:socket-close socket :abort t))))
-    (daemon-stop-thread server)
-    ; mallet:suppress no-ignore-errors -- shutdown continues when the listener close fails
-    (when listener (ignore-errors (sb-bsd-sockets:socket-close listener)))
-    (dolist (thread clients) (daemon-stop-thread thread))
+        (attempt ':client-socket socket
+         (lambda ()
+           (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+             (sb-bsd-sockets:socket-close socket :abort t)))
+         :release
+         (lambda ()
+           (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+             (setf (daemon-runtime-client-sockets runtime)
+                   (delete socket (daemon-runtime-client-sockets runtime) :test #'eq))))))
+      (when server
+        (attempt ':server-thread server (lambda () (reap server)) :release
+         (lambda ()
+           (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+             (when (eq server (daemon-runtime-server-thread runtime))
+               (setf (daemon-runtime-server-thread runtime) nil))))))
+      (when listener
+        (attempt ':listener listener (lambda () (sb-bsd-sockets:socket-close listener :abort t))
+         :release
+         (lambda ()
+           (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+             (when (eq listener (daemon-runtime-listener runtime))
+               (setf (daemon-runtime-listener runtime) nil))))))
+      (dolist (thread clients)
+        (attempt ':client-thread thread (lambda () (reap thread)) :release
+         (lambda ()
+           (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
+             (setf (daemon-runtime-client-threads runtime)
+                   (delete thread (daemon-runtime-client-threads runtime) :test #'eq))))))
+      (when (and (daemon-runtime-publish-p runtime) registry)
+        (attempt ':registry registry
+         (lambda ()
+           (daemon-registry-delete-matching registry (daemon-runtime-record runtime) :errorp t)))))
+    (setf failures (nreverse failures))
     (bordeaux-threads:with-lock-held ((daemon-runtime-lock runtime))
-      (setf (daemon-runtime-listener runtime) nil
-            (daemon-runtime-server-thread runtime) nil))
-    (when (daemon-runtime-publish-p runtime)
-      (daemon-registry-delete-matching (daemon-runtime-registry-pathname runtime)
-                                       (daemon-runtime-record runtime))))
+      (setf (daemon-runtime-cleanup-failures runtime) failures)
+      (when (and failures (null (daemon-runtime-cleanup-cause runtime)))
+        (setf (daemon-runtime-cleanup-cause runtime) (third (first failures))))
+      (unless failures (setf (daemon-runtime-cleanup-cause runtime) nil)))
+    (when failures
+      (error 'daemon-cleanup-error :operation ':stop :failures failures :cause
+             (daemon-runtime-cleanup-cause runtime) :message
+             "Endpoint cleanup failed; retained resources can be stopped again.")))
   nil)

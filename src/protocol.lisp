@@ -215,7 +215,11 @@ detached handoff."
 
 (-> daemon-read-packet (stream) list)
 (defun daemon-read-packet (stream)
-  "Read one safe, proper-list daemon packet frame from STREAM."
+  "Read one safe, proper-list daemon packet frame from STREAM.
+
+A broken frame fails as :READ-PACKET and leaves the stream out of step. A
+whole frame whose payload is no packet fails as :DECODE-PACKET; the stream is
+then still in step, so the next frame can be read."
   (let ((length (read-frame-length stream)))
     (unless length
       (return-from daemon-read-packet nil))
@@ -234,15 +238,31 @@ detached handoff."
                                     (subseq payload position)))
                   (daemon-fail
                    :message   "A daemon packet is malformed."
-                   :operation ':read-packet))
+                   :operation ':decode-packet))
                 packet)))
         (daemon-error (condition)
           (error condition))
         (error (condition)
           (daemon-fail
            :message   "A daemon packet could not be read safely."
-           :operation ':read-packet
+           :operation ':decode-packet
            :cause     condition))))))
+
+(-> daemon-read-decodable-packet (stream &key (:skipped-function (or null function))) list)
+(defun daemon-read-decodable-packet (stream &key skipped-function)
+  "Read the next packet from STREAM that can be decoded, or NIL at end of file.
+
+A peer of another version may send a payload this side cannot read. Its frame
+was consumed whole, so it is skipped, after SKIPPED-FUNCTION, when supplied,
+received the condition. A broken frame still signals."
+  (loop
+    (handler-case
+        (return (daemon-read-packet stream))
+      (daemon-error (condition)
+        (unless (eq (daemon-error-operation condition) ':decode-packet)
+          (error condition))
+        (when skipped-function
+          (funcall skipped-function condition))))))
 
 (-> daemon-read-response (stream keyword) list)
 (defun daemon-read-response (stream operation)

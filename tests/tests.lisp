@@ -51,7 +51,7 @@
     (expect-failure
      (lambda ()
        (daemon-read-packet (make-string-input-stream wire)))
-     ':read-packet)
+     ':decode-packet)
     (check (not evaluated-p)
            "rejected reader syntax never executes"))
   (expect-failure

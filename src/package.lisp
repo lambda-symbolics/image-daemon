@@ -72,6 +72,7 @@ evaluation endpoints for Lisp image daemons.")
            #:daemon-call
            #:daemon-connect
            #:daemon-packet-string
+           #:daemon-read-decodable-packet
            #:daemon-read-packet
            #:daemon-socket-stream
            #:daemon-read-response

@@ -96,6 +96,14 @@ thread. Return true from that callback to end the attachment. Pass
 =:outgoing-function= to send host packets of its own: it is called once per
 cycle and returns the packets to write. =RELAY-READ-ATTACHMENT= hands every
 packet it does not know to its own =:packet-function=.
+
+Both ends tolerate a peer of another version. A packet of an unknown kind goes
+to the packet function or is dropped, unknown fields are ignored, and a whole
+frame whose payload cannot be decoded is skipped: =DAEMON-READ-PACKET= fails
+with operation =:decode-packet= for it, and =DAEMON-READ-DECODABLE-PACKET= reads
+on to the next frame. Only a broken frame, operation =:read-packet=, ends the
+connection, because the stream is then out of step.
+
 Attachment handshakes include =:history-start= and =:history-position= character
 positions for replaying output produced during a reconnect.
 

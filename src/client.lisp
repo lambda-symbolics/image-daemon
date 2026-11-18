@@ -17,8 +17,9 @@
     (relay attachment &key (event-validator #'daemon-terminal-event-p) packet-function)
   "Relay validated controlling input and resize packets until detach or stream end.
 
-PACKET-FUNCTION receives every packet of another kind."
-  (loop for packet = (handler-case (daemon-read-packet (attachment-stream attachment))
+PACKET-FUNCTION receives every packet of another kind. A packet that cannot be
+decoded, as a client of another version may send, is skipped."
+  (loop for packet = (handler-case (daemon-read-decodable-packet (attachment-stream attachment))
                       (error () nil))
         while packet
         do (case (first packet)
@@ -26,7 +27,7 @@ PACKET-FUNCTION receives every packet of another kind."
               (attachment-finish attachment '(:detached))
               (return))
              (:event
-              (when (and (= (length packet) 2)
+              (when (and (rest packet)
                          (not (eq (attachment-mode attachment) ':read-only))
                          (funcall event-validator (second packet)))
                 (relay-enqueue-event relay attachment (second packet))))
@@ -117,8 +118,10 @@ PACKET-FUNCTION receives every packet of another kind."
 
 Preserve the NIL primary return and return a termination plist as the second
 value. Distinguish detach, revocation, application exit, unexpected EOF,
-invalid packets and callback failures. EXIT-FUNCTION receives the legacy exit
-plist. PACKET-FUNCTION may end reception by returning true. Call the optional
+broken frames and callback failures. A packet that cannot be decoded, and an
+output or exit packet of an unknown shape, is skipped: a host of another
+version may send one. EXIT-FUNCTION receives the legacy exit plist.
+PACKET-FUNCTION may end reception by returning true. Call the optional
 TERMINATION-FUNCTION with the bounded diagnostic before cleanup."
   (let ((termination nil)
         (notified-p  nil))
@@ -137,7 +140,7 @@ TERMINATION-FUNCTION with the bounded diagnostic before cleanup."
             (loop
               (let ((packet
                       (handler-case
-                          (daemon-read-packet stream)
+                          (daemon-read-decodable-packet stream)
                         (error (condition)
                           (setf termination
                                 (daemon-attach--termination
@@ -154,24 +157,20 @@ TERMINATION-FUNCTION with the bounded diagnostic before cleanup."
                 (handler-case
                     (case (first packet)
                       (:output
-                       (unless (and (= (length packet) 2) (stringp (second packet)))
-                         (setf termination (daemon-attach--termination ':decoding-failure))
-                         (return))
-                       (write-string (second packet) output-stream)
-                       (finish-output output-stream))
+                       (when (stringp (second packet))
+                         (write-string (second packet) output-stream)
+                         (finish-output output-stream)))
                       (:exit
-                       (unless (daemon-attach--exit-p packet)
-                         (setf termination (daemon-attach--termination ':decoding-failure))
-                         (return))
-                       (setf termination (daemon-attach--exit-termination packet))
-                       (notify)
-                       (when exit-function
-                         (funcall exit-function
-                                  (list* :status  (getf (rest packet) :status)
-                                         :message (getf (rest packet) :message)
-                                         (let ((details (getf (rest packet) :details)))
-                                           (when details (list :details details))))))
-                       (return))
+                       (when (daemon-attach--exit-p packet)
+                         (setf termination (daemon-attach--exit-termination packet))
+                         (notify)
+                         (when exit-function
+                           (funcall exit-function
+                                    (list* :status  (getf (rest packet) :status)
+                                           :message (getf (rest packet) :message)
+                                           (let ((details (getf (rest packet) :details)))
+                                             (when details (list :details details))))))
+                         (return)))
                       ((:detached :revoked)
                        (setf termination (daemon-attach--termination (first packet)))
                        (notify)

@@ -472,6 +472,64 @@
                       (if stop-p "before" "beforeafter"))
              "the host decides whether reception continues"))))
 
+(-> test-attachment-host-replies () t)
+(defun test-attachment-host-replies ()
+  "Require a client's own packets to reach the host's packet function on the relay side."
+  (let ((listener      (make-instance 'sb-bsd-sockets:inet-socket :type ':stream :protocol ':tcp))
+        (transport     (relay-create))
+        (pending       (list '(:host-note :id "N1") '(:host-note :id "N2")))
+        (received      nil)
+        (client-socket nil)
+        (client-stream nil)
+        (attachment    nil)
+        (reader        nil)
+        (client        nil))
+    (unwind-protect
+         (progn
+           (setf (sb-bsd-sockets:sockopt-reuse-address listener) t)
+           (sb-bsd-sockets:socket-bind listener (sb-bsd-sockets:make-inet-address "127.0.0.1") 0)
+           (sb-bsd-sockets:socket-listen listener 1)
+           (multiple-value-setq (client-socket client-stream)
+             (daemon-connect (nth-value 1 (sb-bsd-sockets:socket-name listener))))
+           (let ((server-socket (sb-bsd-sockets:socket-accept listener)))
+             (setf attachment (attachment-create server-socket
+                                                 (daemon-socket-stream server-socket)
+                                                 ':control)))
+           (relay-attach transport attachment :rows 24 :columns 80 :styled-p nil
+                                              :session-id "HOST")
+           (setf reader
+                 (sb-thread:make-thread
+                  (lambda ()
+                    (image-daemon:relay-read-attachment
+                     transport attachment
+                     :packet-function (lambda (packet) (push packet received))))
+                  :name "Host packet reader")
+                 client
+                 (sb-thread:make-thread
+                  (lambda ()
+                    (daemon-attach-client-run client-stream
+                                              :socket               client-socket
+                                              :mode                 ':control
+                                              :input-ready-function (lambda () nil)
+                                              :read-event-function  (lambda () nil)
+                                              :outgoing-function    (lambda () (shiftf pending nil))
+                                              :output-stream        (make-broadcast-stream)))
+                  :name "Host packet client"))
+           (check (wait-until (lambda () (= (length received) 2)) 5)
+                  "the host's packet function receives the client's packets")
+           (check (equal (reverse received) '((:host-note :id "N1") (:host-note :id "N2")))
+                  "the packets arrive whole and in order")
+           (relay-finish transport :status 0)
+           (check (wait-until (lambda () (not (sb-thread:thread-alive-p client))) 5)
+                  "the client still ends on the application's exit"))
+      (when (and client (sb-thread:thread-alive-p client))
+        (sb-thread:terminate-thread client))
+      (when attachment (ignore-errors (attachment-close attachment)))
+      (when client-socket (ignore-errors (sb-bsd-sockets:socket-close client-socket)))
+      (when (and reader (sb-thread:thread-alive-p reader))
+        (sb-thread:terminate-thread reader))
+      (ignore-errors (sb-bsd-sockets:socket-close listener)))))
+
 (defclass borrowed-attachment (attachment)
   ((released-p :initform nil :accessor borrowed-attachment-released-p
                :documentation "Whether cleanup acquired the queue lock successfully."))

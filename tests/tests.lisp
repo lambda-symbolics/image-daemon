@@ -172,6 +172,7 @@
   (test-attachment-client-blocked-detach)
   (test-relay-finish-exit)
   (test-attachment-host-packets)
+  (test-attachment-host-replies)
   (test-attachment-composition)
   (test-attachment-deferred-lifecycle)
   (test-attachment-start-failure)

@@ -9,9 +9,15 @@
       (and (proper-list-p event) (= (length event) 2)
            (member (first event) '(:insert :paste :line)) (stringp (second event)))))
 
-(-> relay-read-attachment (relay attachment &key (:event-validator (or function symbol))) null)
-(defun relay-read-attachment (relay attachment &key (event-validator #'daemon-terminal-event-p))
-  "Relay validated controlling input and resize packets until detach or stream end."
+(-> relay-read-attachment
+    (relay attachment &key (:event-validator (or function symbol))
+           (:packet-function (or null function)))
+    null)
+(defun relay-read-attachment
+    (relay attachment &key (event-validator #'daemon-terminal-event-p) packet-function)
+  "Relay validated controlling input and resize packets until detach or stream end.
+
+PACKET-FUNCTION receives every packet of another kind."
   (loop for packet = (handler-case (daemon-read-packet (attachment-stream attachment))
                       (error () nil))
         while packet
@@ -32,7 +38,10 @@
                            (typep columns '(integer 1 10000)) (typep styled-p 'boolean))
                   (bordeaux-threads:with-lock-held ((relay-lock relay))
                     (when (eq attachment (relay-controller relay))
-                      (transport-resize relay :rows rows :columns columns :styled-p styled-p))))))))
+                      (transport-resize relay :rows rows :columns columns :styled-p styled-p))))))
+             (otherwise
+              (when packet-function
+                (funcall packet-function packet)))))
   nil)
 
 (-> daemon-exit-details-p (t) boolean)
@@ -193,15 +202,18 @@ TERMINATION-FUNCTION with the bounded diagnostic before cleanup."
     (stream &key (:socket t) (:mode t) (:input-ready-function (or null function))
             (:read-event-function (or null function)) (:resize-function (or null function))
             (:output-stream stream) (:close-function (or null function))
-            (:packet-function (or null function)) (:termination-function (or null function)))
+            (:packet-function (or null function)) (:outgoing-function (or null function))
+            (:termination-function (or null function)))
     (values list list))
 (defun daemon-attach-client-run
     (stream &key socket mode input-ready-function read-event-function resize-function
-                 (output-stream *standard-output*) close-function packet-function termination-function)
+                 (output-stream *standard-output*) close-function packet-function
+                 outgoing-function termination-function)
   "Run an attachment, returning its legacy exit result and a termination plist.
 
 The primary value is an application exit plist or NIL. The second value names
 the termination cause, including local input, output and rendering failures.
+OUTGOING-FUNCTION, called once per cycle, returns host packets to send whole.
 TERMINATION-FUNCTION optionally receives that diagnostic after transport cleanup.
 Supply SOCKET or CLOSE-FUNCTION to unblock the receiver during cleanup."
   (unless (or socket close-function)
@@ -258,6 +270,8 @@ Supply SOCKET or CLOSE-FUNCTION to unblock the receiver during cleanup."
                  (loop until (stopped-p)
                        do (let ((resize (and resize-function (funcall resize-function))))
                             (when resize (send (cons :resize resize))))
+                          (when outgoing-function
+                            (mapc #'send (funcall outgoing-function)))
                           (when (and (not (stopped-p)) input-ready-function
                                      (funcall input-ready-function))
                             (let ((event (funcall read-event-function)))

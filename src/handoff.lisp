@@ -218,16 +218,14 @@ The claimant's acknowledgement wins; otherwise any family record that names a
 
 (-> handoff-launch-supervised (list (or pathname string) &key (:directory t) (:output t)) t)
 (defun handoff-launch-supervised (arguments ticket &key directory output)
-  "Start ARGUMENTS behind the gated supervisor that records its group beside TICKET.
+  "Start ARGUMENTS under supervision, recording its identifier beside TICKET.
 
-Return the UIOP process of the supervisor. The launcher's process group
-identifier appears in TICKET's launcher-pid sibling before the launcher runs.
-Hosts without POSIX job control signal DAEMON-ERROR."
+On POSIX return the existing UIOP supervisor process. On Windows return a
+native owned process; use HANDOFF-PROCESS-ID, HANDOFF-PROCESS-ALIVE-P,
+HANDOFF-PROCESS-TERMINATE, HANDOFF-PROCESS-WAIT and HANDOFF-PROCESS-RELEASE.
+The launcher's identifier is private and published before its code runs."
   #+win32
-  (declare (ignore arguments ticket directory output))
-  #+win32
-  (daemon-fail :message "This host cannot supervise a detached process group."
-               :operation ':handoff)
+  (handoff-win32--launch arguments ticket :directory directory :output output)
   #-win32
   (let ((launcher-pid (handoff-ticket-sibling ticket ':launcher-pid))
         (gate (handoff-ticket-sibling ticket ':gate)))

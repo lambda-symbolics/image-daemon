@@ -159,14 +159,35 @@ rename that fails once the launcher has cancelled, and keeps checking
 a sibling named after the ticket (=handoff-ticket-sibling=), so
 =handoff-ticket-delete= removes the whole family.
 
-=handoff-launch-supervised= starts the replacement behind a Bash supervisor that
-creates its process group, records the group identifier beside the ticket
-(=handoff-ticket-launcher-pid=), and only then lets the launcher run, so a failed
-handoff can always find what to stop. =handoff-ticket-replacement-pid= names the
-claimant. =daemon-endpoint-status= accepts a registry record only when a
-different process serves it with the expected token and answers an
-authenticated =:status= request, and =daemon-wait-until= polls such a check up to
-a deadline.
+Call =(handoff-launch-supervised arguments ticket &key directory output)= to
+start arbitrary argv under supervision. On POSIX it returns the UIOP process of
+the existing Bash supervisor, which creates and records the launcher's process
+group before running it. On Windows x86-64 it creates the process suspended,
+assigns it to a kill-on-close JobObject, privately records its PID beside the
+ticket, then resumes it. Only the three explicit standard handles are inherited;
+NIL output uses NUL. Supply an open native file stream to capture output.
+
+Use =handoff-process-id=, =handoff-process-alive-p=,
+=handoff-process-terminate= (with optional =:force=), =handoff-process-wait= and
+=handoff-process-release= with either returned object. Windows liveness and
+termination include descendants after the root exits. Waiting reaps the whole
+job and releases its handles; it returns T on Windows and the supervisor's exit
+status on POSIX. After a successful handoff, release ownership instead of
+terminating: release disarms kill-on-close and closes the native handles without
+stopping the child. Release is idempotent. Native failures signal
+=handoff-process-error=, a =daemon-error= with a native =handoff-process-error-code=.
+
+=handoff-ticket-launcher-pid= reads the recorded identifier;
+=handoff-ticket-replacement-pid= names the claimant. =daemon-endpoint-status=
+accepts a registry record only when a different process serves it with the
+expected token and answers an authenticated =:status= request.
+=daemon-wait-until= polls such a check up to a deadline.
+
+Run the native Windows x86-64 lifecycle suite after loading the locked dependencies:
+
+#+begin_src lisp
+(asdf:test-system "image-daemon/windows-handoff-tests")
+#+end_src
 
 * Evaluation endpoints
 

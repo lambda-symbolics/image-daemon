@@ -18,6 +18,13 @@ evaluation endpoints for Lisp image daemons.")
            #:handoff-ticket-launcher-pid
            #:handoff-ticket-delete
            #:handoff-launch-supervised
+           #:handoff-process-id
+           #:handoff-process-alive-p
+           #:handoff-process-terminate
+           #:handoff-process-wait
+           #:handoff-process-release
+           #:handoff-process-error
+           #:handoff-process-error-code
            #:daemon-endpoint-status
            #:daemon-wait-until
            #:daemon-attach-client-run

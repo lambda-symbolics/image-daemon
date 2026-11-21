@@ -23,6 +23,8 @@
                               (:file "attachment")
                               (:file "runtime")
                               (:file "client")
+                              (:file "handoff-process")
+                              (:file "handoff-win32" :if-feature :win32)
                               (:file "handoff"))))
   :in-order-to ((asdf:test-op (asdf:test-op #:image-daemon/tests))))
 
@@ -69,3 +71,13 @@
   :perform     (asdf:test-op (operation component)
                  (declare (ignore operation component))
                  (uiop:symbol-call '#:image-daemon/message-tests '#:run-tests)))
+
+(asdf:defsystem #:image-daemon/windows-handoff-tests
+  :description "Native Windows x86-64 supervised-process lifecycle tests."
+  :depends-on  (#:image-daemon/runtime)
+  :serial      t
+  :components  ((:file "tests/package")
+                (:file "tests/windows-handoff-tests"))
+  :perform     (asdf:test-op (operation component)
+                 (declare (ignore operation component))
+                 (uiop:symbol-call '#:image-daemon/tests '#:run-windows-handoff-tests)))

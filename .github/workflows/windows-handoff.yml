@@ -1,0 +1,25 @@
+name: Windows handoff
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  handoff:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      LISP: sbcl-bin/2.6.6
+    steps:
+      - uses: actions/checkout@v5
+      - uses: 40ants/setup-lisp@011ae52ac776a259e128dab5eed5b18859ee0809 # v4
+        with:
+          qlot-no-deps: true
+          qlot-version: latest
+      - name: Native Windows handoff cases
+        shell: lispsh -eo pipefail {0}
+        run: |
+          qlot exec ros run -- --noinform --non-interactive \
+            --load .qlot/setup.lisp \
+            --eval '(require :asdf)' \
+            --eval '(assert (and (member :win32 *features*) (member :x86-64 *features*)))' \
+            --eval '(asdf:load-asd (merge-pathnames "image-daemon.asd" (uiop:getcwd)))' \
+            --eval '(asdf:test-system "image-daemon/windows-handoff-tests")'

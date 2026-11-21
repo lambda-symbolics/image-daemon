@@ -41,15 +41,19 @@
            (typep (getf (rest record) :created-at) '(integer 0)))
     (error () nil)))
 
-(-> daemon-registry-read-stream (stream &key (:maximum-octets (integer 1))) list)
-(defun daemon-registry-read-stream (stream &key (maximum-octets 65536))
+(-> daemon-registry-read-stream
+    (stream &key (:maximum-octets (integer 1)) (:extension-keywords list))
+    list)
+(defun daemon-registry-read-stream (stream &key (maximum-octets 65536) extension-keywords)
   "Decode one complete endpoint record from an already-open binary STREAM.
 
 Read at most MAXIMUM-OCTETS plus one octet, returning NIL for oversized,
 unavailable, invalid UTF-8, incomplete or malformed data. Parsing uses a bounded
-closed data grammar and the deployed registry schema. Leave STREAM open and use
-only its current handle and position, without reopening a pathname or acquiring
-a registry lock. The caller owns identity checks, deadlines and authorization."
+closed data grammar and the deployed registry schema. EXTENSION-KEYWORDS
+explicitly names extra keywords from the caller's schema. Leave STREAM open
+and use only its current handle and position, without reopening a pathname or
+acquiring a registry lock. The caller owns identity checks, deadlines and
+authorization."
   (check-type maximum-octets (integer 1))
   (handler-case
       (let* ((octets (make-array (1+ maximum-octets) :element-type '(unsigned-byte 8)))
@@ -57,8 +61,9 @@ a registry lock. The caller owns identity checks, deadlines and authorization."
         (when (<= count maximum-octets)
           (let* ((grammar (sexp-config:make-source-grammar
                            :label                        "Endpoint registry record"
-                           :keywords                     '(:localgroup-endpoint :version :session-id :pid
-                                                           :address :port :token :created-at)
+                           :keywords                     (append '(:localgroup-endpoint :version :session-id :pid
+                                                                   :address :port :token :created-at)
+                                                                 extension-keywords)
                            :maximum-depth                4
                            :maximum-nodes                64
                            :maximum-string-characters    maximum-octets

@@ -75,8 +75,10 @@ Use =(daemon-registry-read-stream stream :maximum-octets 65536)= to decode one
 complete UTF-8 registry record from an already-open binary stream. It returns
 =NIL= for invalid, unavailable or oversized input and leaves the stream open.
 It reads at most the byte ceiling plus one byte and parses a bounded registry
-data grammar. The caller supplies the handle and owns identity checks,
-authorization and deadlines; the decoder does not reopen a path or take a lock.
+data grammar. Callers whose deployed schema adds fields can list their keywords
+with =:extension-keywords=. The caller supplies the handle and owns identity
+checks, authorization and deadlines; the decoder does not reopen a path or take
+a lock.
 
 Create a =RELAY= with =RELAY-CREATE=. Implement the =TRANSPORT-= protocol for your
 foreground transport, or specialize it on a relay subclass to synchronize your

@@ -8,6 +8,7 @@ jobs:
     timeout-minutes: 20
     env:
       LISP: sbcl-bin/2.6.6
+      MSYSCON: Stop-Roswell-From-Installing-Msys2
     steps:
       - uses: actions/checkout@v5
       - name: Refresh MSYS2 package databases
@@ -16,14 +17,20 @@ jobs:
           update: true
           cache: false
           path-type: inherit
-      - uses: 40ants/setup-lisp@011ae52ac776a259e128dab5eed5b18859ee0809 # v4
-        with:
-          qlot-no-deps: true
-          qlot-version: latest
-          roswell-version: latest
-          cache: false
+          install: make mingw-w64-x86_64-roswell
+      - name: Install native SBCL and locked dependencies
+        shell: msys2 {0}
+        run: |
+          set -eo pipefail
+          ros install "$LISP"
+          ros use "$LISP"
+          ros install fukamachi/qlot
+          export PATH="$HOME/.roswell/bin:$HOME/.roswell/lisp/quicklisp/bin:$PATH"
+          echo "$HOME/.roswell/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.roswell/lisp/quicklisp/bin" >> "$GITHUB_PATH"
+          qlot install --no-deps
       - name: Native Windows handoff cases
-        shell: lispsh -eo pipefail {0}
+        shell: msys2 {0}
         run: |
           qlot exec ros run -- --noinform --non-interactive \
             --load .qlot/setup.lisp \

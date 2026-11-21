@@ -10,10 +10,18 @@ jobs:
       LISP: sbcl-bin/2.6.6
     steps:
       - uses: actions/checkout@v5
+      - name: Refresh MSYS2 package databases
+        uses: msys2/setup-msys2@cc11e9188b693c2b100158c3322424c4cc1dadea # v2.22.0
+        with:
+          update: true
+          cache: false
+          path-type: inherit
       - uses: 40ants/setup-lisp@011ae52ac776a259e128dab5eed5b18859ee0809 # v4
         with:
           qlot-no-deps: true
           qlot-version: latest
+          roswell-version: latest
+          cache: false
       - name: Native Windows handoff cases
         shell: lispsh -eo pipefail {0}
         run: |

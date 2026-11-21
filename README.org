@@ -71,6 +71,13 @@ uncertain ownership unless the capability matches. Reconciliation deletes only
 definitely dead records that still equal the inspected value. Shutdown likewise
 compares the complete record, preserving an intervening replacement.
 
+Use =(daemon-registry-read-stream stream :maximum-octets 65536)= to decode one
+complete UTF-8 registry record from an already-open binary stream. It returns
+=NIL= for invalid, unavailable or oversized input and leaves the stream open.
+It reads at most the byte ceiling plus one byte and parses a bounded registry
+data grammar. The caller supplies the handle and owns identity checks,
+authorization and deadlines; the decoder does not reopen a path or take a lock.
+
 Create a =RELAY= with =RELAY-CREATE=. Implement the =TRANSPORT-= protocol for your
 foreground transport, or specialize it on a relay subclass to synchronize your
 UI's state. =RELAY-ATTACH= queues the handshake and replay before live output,

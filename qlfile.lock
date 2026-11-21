@@ -32,8 +32,8 @@
   :version "git-3a92333e088d7d4d39d5d3a6bf1f7401e4b3606d"))
 ("sexp-config" .
  (:class qlot/source/git:source-git
-  :initargs (:remote-url "https://github.com/lambda-symbolics/sexp-config.git" :ref "09e0b86650d08d98c7624ec525d346a41b98323c")
-  :version "git-09e0b86650d08d98c7624ec525d346a41b98323c"))
+  :initargs (:remote-url "https://github.com/lambda-symbolics/sexp-config.git" :ref "9280b5bf0dc056dee49dcf8c9940f30c049015f9")
+  :version "git-9280b5bf0dc056dee49dcf8c9940f30c049015f9"))
 ("ls-flock" .
  (:class qlot/source/git:source-git
   :initargs (:remote-url "https://github.com/lambda-symbolics/ls-flock.git" :ref "ee9fc57a46a396e6386d61f81a6df926ca9f9906")

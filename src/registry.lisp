@@ -41,6 +41,36 @@
            (typep (getf (rest record) :created-at) '(integer 0)))
     (error () nil)))
 
+(-> daemon-registry-read-stream (stream &key (:maximum-octets (integer 1))) list)
+(defun daemon-registry-read-stream (stream &key (maximum-octets 65536))
+  "Decode one complete endpoint record from an already-open binary STREAM.
+
+Read at most MAXIMUM-OCTETS plus one octet, returning NIL for oversized,
+unavailable, invalid UTF-8, incomplete or malformed data. Parsing uses a bounded
+closed data grammar and the deployed registry schema. Leave STREAM open and use
+only its current handle and position, without reopening a pathname or acquiring
+a registry lock. The caller owns identity checks, deadlines and authorization."
+  (check-type maximum-octets (integer 1))
+  (handler-case
+      (let* ((octets (make-array (1+ maximum-octets) :element-type '(unsigned-byte 8)))
+             (count  (read-sequence octets stream)))
+        (when (<= count maximum-octets)
+          (let* ((grammar (sexp-config:make-source-grammar
+                           :label                        "Endpoint registry record"
+                           :keywords                     '(:localgroup-endpoint :version :session-id :pid
+                                                           :address :port :token :created-at)
+                           :maximum-depth                4
+                           :maximum-nodes                64
+                           :maximum-string-characters    maximum-octets
+                           :readable-strings-permitted-p t
+                           :allowed-atom-predicate
+                           (lambda (value)
+                             (or (null value) (keywordp value) (stringp value) (integerp value)))))
+                 (record  (sexp-config:read-source
+                           (ls-compat:utf8-octets-to-string (subseq octets 0 count)) grammar)))
+            (and (daemon-registry-record-p record) record))))
+    (error () nil)))
+
 (-> daemon-registry-call-with-lock ((or pathname string) function) *)
 (defun daemon-registry-call-with-lock (pathname function)
   "Call FUNCTION while serializing registry updates beside PATHNAME."

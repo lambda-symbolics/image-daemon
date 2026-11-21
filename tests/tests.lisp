@@ -167,6 +167,8 @@
   (test-relay-stop-recovery)
   (test-registry)
   (test-registry-locking)
+  (test-registry-stream-decoder)
+  (test-registry-stream-identity)
   (test-replay)
   (test-localgroup-attachment-close-safety)
   (test-attachment-client-blocked-detach)

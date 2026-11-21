@@ -12,7 +12,7 @@
 
 (asdf:defsystem #:image-daemon/runtime
   :description "Persistent local services, discovery and terminal attachment."
-  :depends-on  (#:image-daemon #:sb-posix #:sexp-store #:ls-flock #:ls-compat/posix
+  :depends-on  (#:image-daemon #:sb-posix #:sexp-config #:sexp-store #:ls-flock #:ls-compat/posix
                 #:bordeaux-threads #:structlisp #:serapeum)
   :serial      t
   :components  ((:module     "src"
@@ -48,6 +48,7 @@
                               (:file "tests")
                               (:file "thread-tests")
                               (:file "runtime-tests")
+                              (:file "registry-decoder-tests")
                               (:file "runtime-restart-tests")
                               (:file "attachment-tests")
                               (:file "attachment-failure-tests")

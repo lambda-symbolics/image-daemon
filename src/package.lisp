@@ -88,6 +88,7 @@ evaluation endpoints for Lisp image daemons.")
            #:daemon-registry-pathname
            #:daemon-registry-record
            #:daemon-registry-record-p
+           #:daemon-registry-read-stream
            #:daemon-registry-read
            #:daemon-registry-call-with-lock
            #:daemon-process-state

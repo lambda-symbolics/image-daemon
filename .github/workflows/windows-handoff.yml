@@ -6,35 +6,28 @@ jobs:
   handoff:
     runs-on: windows-2025
     timeout-minutes: 20
-    env:
-      LISP: sbcl-bin/2.6.6
-      MSYSCON: Stop-Roswell-From-Installing-Msys2
     steps:
       - uses: actions/checkout@v5
-      - name: Refresh MSYS2 package databases
-        uses: msys2/setup-msys2@cc11e9188b693c2b100158c3322424c4cc1dadea # v2.22.0
-        with:
-          update: true
-          cache: false
-          path-type: inherit
-          install: make mingw-w64-x86_64-roswell
-      - name: Install native SBCL and locked dependencies
-        shell: msys2 {0}
+      - name: Install native SBCL 2.6.6
+        shell: pwsh
         run: |
-          set -eo pipefail
-          ros install "$LISP"
-          ros use "$LISP"
-          ros install fukamachi/qlot
-          export PATH="$HOME/.roswell/bin:$HOME/.roswell/lisp/quicklisp/bin:$PATH"
-          echo "$HOME/.roswell/bin" >> "$GITHUB_PATH"
-          echo "$HOME/.roswell/lisp/quicklisp/bin" >> "$GITHUB_PATH"
-          qlot install --no-deps
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'sbcl.msi'
+          curl.exe --fail --location --show-error --retry 3 --output $archive 'https://downloads.sourceforge.net/project/sbcl/sbcl/2.6.6/sbcl-2.6.6-x86-64-windows-binary.msi'
+          if ($LASTEXITCODE -ne 0) { throw 'SBCL download failed.' }
+          $expected = 'edc85cdfb7c7123060c53a88eecd203ec3f6701b8520a44d4ee1113f19741f7e'
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'SBCL checksum mismatch.' }
+          $extract = Join-Path $env:RUNNER_TEMP 'sbcl'
+          $process = Start-Process msiexec.exe -Wait -PassThru -NoNewWindow -ArgumentList @('/a', "`"$archive`"", '/qn', "TARGETDIR=`"$extract`"")
+          if ($process.ExitCode -ne 0) { throw 'SBCL extraction failed.' }
+          $runtime = Join-Path $extract 'PFiles\Steel Bank Common Lisp'
+          $runtime | Add-Content $env:GITHUB_PATH
+          "SBCL_HOME=$runtime" | Add-Content $env:GITHUB_ENV
       - name: Native Windows handoff cases
-        shell: msys2 {0}
+        shell: pwsh
         run: |
-          qlot exec ros run -- --noinform --non-interactive \
-            --load .qlot/setup.lisp \
-            --eval '(require :asdf)' \
-            --eval '(assert (and (member :win32 *features*) (member :x86-64 *features*)))' \
-            --eval '(asdf:load-asd (merge-pathnames "image-daemon.asd" (uiop:getcwd)))' \
-            --eval '(asdf:test-system "image-daemon/windows-handoff-tests")'
+          $ErrorActionPreference = 'Stop'
+          $installer = Join-Path $env:RUNNER_TEMP 'quicklisp.lisp'
+          Invoke-WebRequest -Uri 'https://beta.quicklisp.org/quicklisp.lisp' -OutFile $installer
+          sbcl --noinform --no-userinit --no-sysinit --non-interactive --load $installer --eval '(quicklisp-quickstart:install)' --load checks/windows-handoff.lisp
+          if ($LASTEXITCODE -ne 0) { throw 'Native handoff cases failed.' }

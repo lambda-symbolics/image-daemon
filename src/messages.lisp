@@ -175,21 +175,22 @@ the dispatcher must authorize them. Request/response frames and clients are boun
 
 (-> daemon-message-call
     (t &key (:action t) (:id t) (:sender t) (:receiver t) (:payload t) (:timeout t)
-       (:cancelled-p t) (:character-limit t))
+       (:cancelled-p t) (:character-limit t) (:request-tag keyword))
     t)
 (defun daemon-message-call (record &key action id sender receiver payload (timeout 2)
-                                       cancelled-p (character-limit 65536))
+                                        cancelled-p (character-limit 65536) (request-tag :localgroup-request))
   "Send one bounded correlated operation through a discovered private RECORD.
 Return the dispatcher result, or signal DAEMON-MESSAGE-ERROR. A remote UNKNOWN,
 timeout, cancellation or disconnect is an uncertain outcome, not proof of failed
 admission. Retry/inspect by the same stable ID. CANCELLED-P cancels local waiting
-and does not roll back remote effects; semantic cancellation is a dispatcher action."
+and does not roll back remote effects; semantic cancellation is a dispatcher action.
+Use REQUEST-TAG when the endpoint authenticates a different outer request tag."
   (unless (and (typep timeout '(real (0) *)) (typep character-limit '(integer 256 8388608))
                (or (null cancelled-p) (functionp cancelled-p)))
     (daemon-message--fail ':configuration))
   (unless (daemon-registry-record-p record) (daemon-message--fail ':request))
   (let* ((envelope                         (list :action action :id id :sender sender :receiver receiver :payload payload))
-         (request                          (list :localgroup-request :version *daemon-protocol-version*
+         (request                          (list request-tag :version *daemon-protocol-version*
                                                  :token (getf (rest record) :token) :operation :message :arguments envelope))
          (*daemon-connect-timeout-seconds* timeout)
          (*daemon-packet-character-limit*  character-limit)

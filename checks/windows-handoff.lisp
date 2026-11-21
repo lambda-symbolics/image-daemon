@@ -13,7 +13,8 @@
   (with-open-file (stream (merge-pathnames "qlfile" root))
     (loop for line = (read-line stream nil)
           while line
-          for fields = (remove "" (uiop:split-string line :separator '(#\Space))
+          for fields = (remove "" (uiop:split-string (string-right-trim '(#\Return) line)
+                                                    :separator '(#\Space))
                                :test #'string=)
           when (equal (first fields) "git")
             do (destructuring-bind (kind name url option ref) fields
